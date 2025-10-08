@@ -1,0 +1,63 @@
+{
+    "translators": {
+        "google": {
+            "enabled": true,
+            "timeout": 15,
+            "retry_count": 3,
+            "use_ssl_bypass": true
+        },
+        "openai": {
+            "enabled": false,
+            "api_key": "",
+            "base_url": "https://api.openai.com/v1",
+            "model": "gpt-3.5-turbo",
+            "max_tokens": 4000,
+            "temperature": 0.3
+        },
+        "baidu": {
+            "enabled": false,
+            "app_id": "",
+            "secret_key": ""
+        },
+        "tencent": {
+            "enabled": false,
+            "secret_id": "",
+            "secret_key": ""
+        },
+        "aliyun": {
+            "enabled": false,
+            "access_key_id": "",
+            "access_key_secret": ""
+        },
+        "offline": {
+            "enabled": true,
+            "service": "auto"
+        },
+        "simple": {
+            "enabled": true
+        }
+    },
+    "whisper": {
+        "model_size": "base",
+        "language": "auto",
+        "device": "auto",
+        "model_path": "",
+        "available_models": {
+            "english": ["tiny.en", "base.en", "small.en", "medium.en"],
+            "multilingual": ["tiny", "base", "small", "medium", "large", "turbo"]
+        },
+        "model_recommendations": {
+            "fast": "tiny.en",
+            "balanced": "base.en", 
+            "quality": "small.en",
+            "best": "medium.en",
+            "multilingual": "turbo"
+        }
+    },
+    "general": {
+        "default_translator": "google",
+        "fallback_translator": "simple",
+        "auto_detect_language": true,
+        "save_config_on_exit": true
+    }
+}

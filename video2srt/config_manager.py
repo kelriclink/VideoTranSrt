@@ -1,0 +1,313 @@
+"""
+配置管理模块
+用于管理用户的 API 设置和应用程序配置
+"""
+
+import json
+import os
+from pathlib import Path
+from typing import Dict, Any, Optional, List
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class ConfigManager:
+    """配置管理器"""
+    
+    def __init__(self, config_dir: Optional[str] = None):
+        """
+        初始化配置管理器
+        
+        Args:
+            config_dir: 配置目录路径，默认为程序目录下的 config 文件夹
+        """
+        if config_dir is None:
+            # 使用程序目录下的 config 文件夹
+            self.config_dir = Path(__file__).parent.parent / "config"
+        else:
+            self.config_dir = Path(config_dir)
+        
+        self.config_file = self.config_dir / "config.json"
+        self.default_config_file = Path(__file__).parent.parent / "config" / "default_config.json"
+        
+        # 确保配置目录存在
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 加载配置
+        self.config = self._load_config()
+    
+    def _load_config(self) -> Dict[str, Any]:
+        """加载配置文件"""
+        try:
+            # 如果用户配置文件存在，加载它
+            if self.config_file.exists():
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    user_config = json.load(f)
+                
+                # 加载默认配置
+                with open(self.default_config_file, 'r', encoding='utf-8') as f:
+                    default_config = json.load(f)
+                
+                # 合并配置（用户配置覆盖默认配置）
+                return self._merge_configs(default_config, user_config)
+            else:
+                # 如果用户配置文件不存在，使用默认配置
+                with open(self.default_config_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        
+        except Exception as e:
+            logger.error(f"加载配置文件失败: {e}")
+            # 返回空配置
+            return {}
+    
+    def _merge_configs(self, default: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
+        """合并默认配置和用户配置"""
+        result = default.copy()
+        
+        for key, value in user.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                result[key] = self._merge_configs(result[key], value)
+            else:
+                result[key] = value
+        
+        return result
+    
+    def save_config(self) -> bool:
+        """保存配置到文件"""
+        try:
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(self.config, f, indent=4, ensure_ascii=False)
+            return True
+        except Exception as e:
+            logger.error(f"保存配置文件失败: {e}")
+            return False
+    
+    def get(self, key: str, default: Any = None) -> Any:
+        """
+        获取配置值
+        
+        Args:
+            key: 配置键，支持点号分隔的嵌套键，如 'openai.api_key'
+            default: 默认值
+            
+        Returns:
+            配置值
+        """
+        keys = key.split('.')
+        value = self.config
+        
+        try:
+            for k in keys:
+                value = value[k]
+            return value
+        except (KeyError, TypeError):
+            return default
+    
+    def set(self, key: str, value: Any) -> bool:
+        """
+        设置配置值
+        
+        Args:
+            key: 配置键，支持点号分隔的嵌套键
+            value: 配置值
+            
+        Returns:
+            是否设置成功
+        """
+        try:
+            keys = key.split('.')
+            config = self.config
+            
+            # 导航到目标位置
+            for k in keys[:-1]:
+                if k not in config:
+                    config[k] = {}
+                config = config[k]
+            
+            # 设置值
+            config[keys[-1]] = value
+            return True
+        except Exception as e:
+            logger.error(f"设置配置值失败: {e}")
+            return False
+    
+    def get_openai_config(self) -> Dict[str, Any]:
+        """获取 OpenAI 配置"""
+        return self.get('translators.openai', {})
+    
+    def set_openai_api_key(self, api_key: str) -> bool:
+        """设置 OpenAI API 密钥"""
+        return self.set('translators.openai.api_key', api_key)
+    
+    def get_openai_api_key(self) -> str:
+        """获取 OpenAI API 密钥"""
+        return self.get('translators.openai.api_key', '')
+    
+    def get_translator_config(self, translator_name: str) -> Dict[str, Any]:
+        """获取指定翻译器的配置"""
+        return self.get(f'translators.{translator_name}', {})
+    
+    def is_translator_enabled(self, translator_name: str) -> bool:
+        """检查翻译器是否启用"""
+        return self.get(f'translators.{translator_name}.enabled', True)
+    
+    def set_translator_enabled(self, translator_name: str, enabled: bool) -> bool:
+        """设置翻译器启用状态"""
+        return self.set(f'translators.{translator_name}.enabled', enabled)
+    
+    def get_default_translator(self) -> str:
+        """获取默认翻译器"""
+        return self.get('general.default_translator', 'google')
+    
+    def set_default_translator(self, translator: str) -> bool:
+        """设置默认翻译器"""
+        return self.set('general.default_translator', translator)
+    
+    def get_fallback_translator(self) -> str:
+        """获取备用翻译器"""
+        return self.get('general.fallback_translator', 'simple')
+    
+    def set_fallback_translator(self, translator: str) -> bool:
+        """设置备用翻译器"""
+        return self.set('general.fallback_translator', translator)
+    
+    def get_whisper_config(self) -> Dict[str, Any]:
+        """获取 Whisper 配置"""
+        return self.get('whisper', {})
+    
+    def get_whisper_model_size(self) -> str:
+        """获取 Whisper 模型大小"""
+        return self.get('whisper.model_size', 'base')
+    
+    def get_available_whisper_models(self) -> List[str]:
+        """获取所有可用的 Whisper 模型"""
+        return ["tiny.en", "base.en", "small.en", "medium.en", 
+                "tiny", "base", "small", "medium", "large"]
+    
+    def get_english_whisper_models(self) -> List[str]:
+        """获取英语专用 Whisper 模型"""
+        return ["tiny.en", "base.en", "small.en", "medium.en"]
+    
+    def get_multilingual_whisper_models(self) -> List[str]:
+        """获取多语言 Whisper 模型"""
+        return ["tiny", "base", "small", "medium", "large"]
+    
+    def is_english_model(self, model_size: str) -> bool:
+        """检查是否为英语专用模型"""
+        return model_size.endswith('.en')
+    
+    def get_model_recommendation(self, use_case: str = "general") -> str:
+        """根据使用场景推荐模型"""
+        recommendations = {
+            "fast": "tiny.en" if self.get('whisper.language', 'auto') == 'en' else "tiny",
+            "balanced": "base.en" if self.get('whisper.language', 'auto') == 'en' else "base", 
+            "quality": "small.en" if self.get('whisper.language', 'auto') == 'en' else "small",
+            "best": "medium.en" if self.get('whisper.language', 'auto') == 'en' else "large"
+        }
+        return recommendations.get(use_case, "base")
+    
+    def set_whisper_model_size(self, model_size: str) -> bool:
+        """设置 Whisper 模型大小"""
+        return self.set('whisper.model_size', model_size)
+    
+    def get_whisper_language(self) -> str:
+        """获取 Whisper 语言设置"""
+        return self.get('whisper.language', 'auto')
+    
+    def set_whisper_language(self, language: str) -> bool:
+        """设置 Whisper 语言"""
+        return self.set('whisper.language', language)
+    
+    def get_whisper_model_path(self) -> str:
+        """获取 Whisper 模型存储路径"""
+        model_path = self.get('whisper.model_path')
+        if model_path:
+            return model_path
+        else:
+            # 默认使用项目目录下的model文件夹
+            project_root = Path(__file__).parent.parent
+            default_path = str(project_root / "model")
+            # 确保目录存在
+            Path(default_path).mkdir(exist_ok=True)
+            return default_path
+    
+    def set_whisper_model_path(self, model_path: str) -> bool:
+        """设置 Whisper 模型存储路径"""
+        return self.set('whisper.model_path', model_path)
+    
+    def get_available_translators(self) -> list:
+        """获取可用的翻译器列表"""
+        translators = []
+        
+        # 检查各个翻译器的可用性
+        if self.is_translator_enabled('google'):
+            translators.append('google')
+        
+        if self.is_translator_enabled('openai') and self.get_openai_api_key():
+            translators.append('openai')
+        
+        if self.is_translator_enabled('offline'):
+            translators.append('offline')
+        
+        if self.is_translator_enabled('baidu') and self.get('translators.baidu.app_id') and self.get('translators.baidu.secret_key'):
+            translators.append('baidu')
+        
+        if self.is_translator_enabled('tencent') and self.get('translators.tencent.secret_id') and self.get('translators.tencent.secret_key'):
+            translators.append('tencent')
+        
+        if self.is_translator_enabled('aliyun') and self.get('translators.aliyun.access_key_id') and self.get('translators.aliyun.access_key_secret'):
+            translators.append('aliyun')
+        
+        # 简单翻译器总是可用
+        if self.is_translator_enabled('simple'):
+            translators.append('simple')
+        
+        return translators
+    
+    def reset_to_default(self) -> bool:
+        """重置为默认配置"""
+        try:
+            with open(self.default_config_file, 'r', encoding='utf-8') as f:
+                self.config = json.load(f)
+            return self.save_config()
+        except Exception as e:
+            logger.error(f"重置配置失败: {e}")
+            return False
+    
+    def export_config(self, file_path: str) -> bool:
+        """导出配置到指定文件"""
+        try:
+            export_path = Path(file_path)
+            with open(export_path, 'w', encoding='utf-8') as f:
+                json.dump(self.config, f, indent=4, ensure_ascii=False)
+            return True
+        except Exception as e:
+            logger.error(f"导出配置失败: {e}")
+            return False
+    
+    def import_config(self, file_path: str) -> bool:
+        """从指定文件导入配置"""
+        try:
+            import_path = Path(file_path)
+            if not import_path.exists():
+                logger.error(f"配置文件不存在: {file_path}")
+                return False
+            
+            with open(import_path, 'r', encoding='utf-8') as f:
+                imported_config = json.load(f)
+            
+            # 验证配置格式
+            if not isinstance(imported_config, dict):
+                logger.error("配置文件格式错误")
+                return False
+            
+            self.config = imported_config
+            return self.save_config()
+        except Exception as e:
+            logger.error(f"导入配置失败: {e}")
+            return False
+
+
+# 全局配置管理器实例
+config_manager = ConfigManager()
