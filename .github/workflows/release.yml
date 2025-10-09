@@ -1,0 +1,242 @@
+name: Auto Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # 匹配版本标签，如 v1.0.0
+  workflow_dispatch:  # 允许手动触发
+    inputs:
+      version:
+        description: '发布版本号 (例如: v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      release_id: ${{ steps.create_release.outputs.id }}
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # 获取完整历史记录用于生成变更日志
+    
+    - name: Get version
+      id: get_version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+        else
+          echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Generate changelog
+      id: changelog
+      run: |
+        # 获取最新的两个标签之间的提交
+        PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
+        if [ -z "$PREVIOUS_TAG" ]; then
+          CHANGELOG=$(git log --pretty=format:"- %s" --no-merges)
+        else
+          CHANGELOG=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s" --no-merges)
+        fi
+        
+        # 保存到文件以避免特殊字符问题
+        echo "$CHANGELOG" > changelog.txt
+        echo "CHANGELOG_FILE=changelog.txt" >> $GITHUB_OUTPUT
+    
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.get_version.outputs.VERSION }}
+        release_name: VideoTransRT ${{ steps.get_version.outputs.VERSION }}
+        body_path: changelog.txt
+        draft: false
+        prerelease: false
+
+  build-windows:
+    needs: create-release
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+        cache-dependency-path: 'requirements.txt'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+    
+    - name: Install FFmpeg
+      run: |
+        choco install ffmpeg -y
+        refreshenv
+    
+    - name: Build with PyInstaller
+      run: |
+        pyinstaller --onefile --windowed --name VideoTransRT --icon=video2srt/gui/icon.ico --add-data "config;config" video2srt/gui/main.py
+    
+    - name: Create Release Package
+      run: |
+        mkdir release
+        mkdir release\config
+        copy dist\VideoTransRT.exe release\
+        copy README.md release\
+        copy LICENSE release\
+        copy config\default_config.json release\config\
+        
+        # 创建ZIP包
+        powershell Compress-Archive -Path release\* -DestinationPath VideoTransRT-Windows.zip
+    
+    - name: Upload Release Asset - EXE
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./release/VideoTransRT.exe
+        asset_name: VideoTransRT.exe
+        asset_content_type: application/octet-stream
+    
+    - name: Upload Release Asset - ZIP
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./VideoTransRT-Windows.zip
+        asset_name: VideoTransRT-Windows.zip
+        asset_content_type: application/zip
+
+  build-linux:
+    needs: create-release
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+        cache-dependency-path: 'requirements.txt'
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+    
+    - name: Build with PyInstaller
+      run: |
+        pyinstaller --onefile --name VideoTransRT --add-data "config:config" video2srt/gui/main.py
+    
+    - name: Create Release Package
+      run: |
+        mkdir release
+        mkdir release/config
+        cp dist/VideoTransRT release/
+        cp README.md release/
+        cp LICENSE release/
+        cp config/default_config.json release/config/
+        
+        # 创建tar.gz包
+        tar -czf VideoTransRT-Linux.tar.gz -C release .
+    
+    - name: Upload Release Asset - Binary
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./release/VideoTransRT
+        asset_name: VideoTransRT-Linux
+        asset_content_type: application/octet-stream
+    
+    - name: Upload Release Asset - TAR.GZ
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./VideoTransRT-Linux.tar.gz
+        asset_name: VideoTransRT-Linux.tar.gz
+        asset_content_type: application/gzip
+
+  build-macos:
+    needs: create-release
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+        cache-dependency-path: 'requirements.txt'
+    
+    - name: Install system dependencies
+      run: |
+        brew install ffmpeg
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+    
+    - name: Build with PyInstaller
+      run: |
+        pyinstaller --onefile --windowed --name VideoTransRT --add-data "config:config" video2srt/gui/main.py
+    
+    - name: Create Release Package
+      run: |
+        mkdir release
+        mkdir release/config
+        cp dist/VideoTransRT release/
+        cp README.md release/
+        cp LICENSE release/
+        cp config/default_config.json release/config/
+        
+        # 创建DMG包（简化版本，使用zip）
+        zip -r VideoTransRT-macOS.zip release/
+    
+    - name: Upload Release Asset - Binary
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./release/VideoTransRT
+        asset_name: VideoTransRT-macOS
+        asset_content_type: application/octet-stream
+    
+    - name: Upload Release Asset - ZIP
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./VideoTransRT-macOS.zip
+        asset_name: VideoTransRT-macOS.zip
+        asset_content_type: application/zip

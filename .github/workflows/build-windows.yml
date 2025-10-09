@@ -126,6 +126,7 @@ jobs:
     - name: Create Release Package
       run: |
         mkdir release
+        mkdir release\config
         copy dist\VideoTransRT.exe release\
         copy README.md release\
         copy LICENSE release\
@@ -146,18 +147,19 @@ jobs:
           release/VideoTransRT.exe
           release/README.md
           release/LICENSE
+          release/config/default_config.json
         draft: false
         prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        path: release/
-    
-    - name: Create Release
-      if: startsWith(github.ref, 'refs/tags/')
-      uses: softprops/action-gh-release@v1
-      with:
-        files: release/VideoTransRT.exe
-        draft: false
-        prerelease: false
+        generate_release_notes: true
+        body: |
+          ## 更新内容
+          - 修复GUI中的信号处理错误
+          - 添加新的功能模块
+          - 改进错误处理和资源管理
+          
+          ## 安装说明
+          1. 下载 VideoTransRT.exe
+          2. 确保系统已安装 FFmpeg
+          3. 运行程序即可使用
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
