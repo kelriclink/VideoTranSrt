@@ -1,15 +1,26 @@
 """
 配置管理模块
 用于管理用户的 API 设置和应用程序配置
+提供配置校验、默认值管理和配置文件处理功能
 """
 
 import json
 import os
+import yaml
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 import logging
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ConfigValidationResult:
+    """配置验证结果"""
+    is_valid: bool
+    errors: List[str]
+    warnings: List[str]
 
 
 class ConfigManager:
@@ -265,7 +276,183 @@ class ConfigManager:
         
         return translators
     
-    def reset_to_default(self) -> bool:
+    def validate_config(self, config_data: Optional[Dict[str, Any]] = None) -> ConfigValidationResult:
+        """
+        验证配置数据
+        
+        Args:
+            config_data: 要验证的配置数据，None表示验证当前配置
+            
+        Returns:
+            配置验证结果
+        """
+        if config_data is None:
+            config_data = self.config
+        
+        errors = []
+        warnings = []
+        
+        try:
+            # 验证转录器配置
+            if 'transcriber' in config_data:
+                transcriber_config = config_data['transcriber']
+                
+                # 验证模型名称
+                if 'model_size' in transcriber_config:
+                    valid_models = self.get_available_whisper_models()
+                    if transcriber_config['model_size'] not in valid_models:
+                        errors.append(f"无效的模型名称: {transcriber_config['model_size']}")
+                
+                # 验证语言代码
+                if 'language' in transcriber_config and transcriber_config['language']:
+                    # 这里可以添加语言代码验证逻辑
+                    pass
+            
+            # 验证翻译器配置
+            if 'translator' in config_data:
+                translator_config = config_data['translator']
+                
+                # 验证默认翻译器
+                if 'default' in translator_config:
+                    available = self.get_available_translators()
+                    if translator_config['default'] not in [t['name'] for t in available]:
+                        errors.append(f"无效的默认翻译器: {translator_config['default']}")
+                
+                # 验证备用翻译器
+                if 'fallback' in translator_config:
+                    available = self.get_available_translators()
+                    if translator_config['fallback'] not in [t['name'] for t in available]:
+                        warnings.append(f"无效的备用翻译器: {translator_config['fallback']}")
+                
+                # 验证API密钥
+                if 'openai' in translator_config:
+                    openai_config = translator_config['openai']
+                    if openai_config.get('enabled', False) and not openai_config.get('api_key'):
+                        warnings.append("OpenAI翻译器已启用但未设置API密钥")
+            
+            # 验证输出格式配置
+            if 'output' in config_data:
+                output_config = config_data['output']
+                
+                # 验证编码
+                if 'encoding' in output_config:
+                    try:
+                        'test'.encode(output_config['encoding'])
+                    except LookupError:
+                        errors.append(f"无效的编码: {output_config['encoding']}")
+                
+                # 验证格式
+                if 'format' in output_config:
+                    valid_formats = ['srt', 'webvtt', 'ass']
+                    if output_config['format'] not in valid_formats:
+                        errors.append(f"无效的输出格式: {output_config['format']}")
+            
+            return ConfigValidationResult(
+                is_valid=len(errors) == 0,
+                errors=errors,
+                warnings=warnings
+            )
+            
+        except Exception as e:
+            logger.error(f"配置验证失败: {e}")
+            return ConfigValidationResult(
+                is_valid=False,
+                errors=[f"配置验证异常: {e}"],
+                warnings=[]
+            )
+    
+    def get_config_schema(self) -> Dict[str, Any]:
+        """
+        获取配置模式定义
+        
+        Returns:
+            配置模式字典
+        """
+        return {
+            "transcriber": {
+                "model_size": {
+                    "type": "string",
+                    "enum": self.get_available_whisper_models(),
+                    "default": "base",
+                    "description": "Whisper模型大小"
+                },
+                "language": {
+                    "type": "string",
+                    "default": "auto",
+                    "description": "转录语言，auto表示自动检测"
+                },
+                "model_path": {
+                    "type": "string",
+                    "default": "",
+                    "description": "自定义模型路径"
+                }
+            },
+            "translator": {
+                "default": {
+                    "type": "string",
+                    "enum": [t['name'] for t in self.get_available_translators()],
+                    "default": "google",
+                    "description": "默认翻译器"
+                },
+                "fallback": {
+                    "type": "string",
+                    "enum": [t['name'] for t in self.get_available_translators()],
+                    "default": "simple",
+                    "description": "备用翻译器"
+                },
+                "openai": {
+                    "type": "object",
+                    "properties": {
+                        "enabled": {"type": "boolean", "default": False},
+                        "api_key": {"type": "string", "default": ""},
+                        "model": {"type": "string", "default": "gpt-3.5-turbo"},
+                        "base_url": {"type": "string", "default": ""}
+                    }
+                }
+            },
+            "output": {
+                "format": {
+                    "type": "string",
+                    "enum": ["srt", "webvtt", "ass"],
+                    "default": "srt",
+                    "description": "输出格式"
+                },
+                "encoding": {
+                    "type": "string",
+                    "default": "utf-8",
+                    "description": "文件编码"
+                }
+            }
+        }
+    
+    def apply_defaults(self, config_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        应用默认值到配置数据
+        
+        Args:
+            config_data: 配置数据
+            
+        Returns:
+            应用默认值后的配置数据
+        """
+        schema = self.get_config_schema()
+        result = config_data.copy()
+        
+        def apply_defaults_recursive(data: Dict[str, Any], schema_part: Dict[str, Any]):
+            for key, schema_info in schema_part.items():
+                if key not in data:
+                    if isinstance(schema_info, dict) and 'default' in schema_info:
+                        data[key] = schema_info['default']
+                    elif isinstance(schema_info, dict) and 'type' in schema_info and schema_info['type'] == 'object':
+                        data[key] = {}
+                
+                if key in data and isinstance(schema_info, dict) and 'properties' in schema_info:
+                    if not isinstance(data[key], dict):
+                        data[key] = {}
+                    apply_defaults_recursive(data[key], schema_info['properties'])
+        
+        apply_defaults_recursive(result, schema)
+        return result
         """重置为默认配置"""
         try:
             with open(self.default_config_file, 'r', encoding='utf-8') as f:

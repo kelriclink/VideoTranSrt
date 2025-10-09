@@ -3,8 +3,9 @@ SRT 格式化模块
 将转录结果转换为标准 SRT 字幕格式
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union
 from pathlib import Path
+from .models import Segment
 
 
 class SRTFormatter:
@@ -24,35 +25,41 @@ class SRTFormatter:
         hours = int(seconds // 3600)
         minutes = int((seconds % 3600) // 60)
         secs = int(seconds % 60)
-        millisecs = int((seconds % 1) * 1000)
+        # 修复毫秒精度问题，使用四舍五入
+        millisecs = round((seconds % 1) * 1000)
         
         return f"{hours:02d}:{minutes:02d}:{secs:02d},{millisecs:03d}"
     
     @staticmethod
-    def format_segment(segment: Dict[str, Any], index: int) -> str:
+    def format_segment(segment: Union[Segment, Dict[str, Any]], index: int) -> str:
         """
         格式化单个字幕段
         
         Args:
-            segment: 字幕段数据
+            segment: 字幕段数据（Segment对象或字典）
             index: 字幕段序号
             
         Returns:
             格式化的字幕段字符串
         """
-        start_time = SRTFormatter.format_time(segment["start"])
-        end_time = SRTFormatter.format_time(segment["end"])
-        text = segment["text"].strip()
+        if isinstance(segment, Segment):
+            start_time = SRTFormatter.format_time(segment.start)
+            end_time = SRTFormatter.format_time(segment.end)
+            text = segment.text.strip()
+        else:
+            start_time = SRTFormatter.format_time(segment["start"])
+            end_time = SRTFormatter.format_time(segment["end"])
+            text = segment["text"].strip()
         
         return f"{index}\n{start_time} --> {end_time}\n{text}\n"
     
     @staticmethod
-    def format_segments(segments: List[Dict[str, Any]]) -> str:
+    def format_segments(segments: List[Union[Segment, Dict[str, Any]]]) -> str:
         """
         格式化所有字幕段
         
         Args:
-            segments: 字幕段列表
+            segments: 字幕段列表（Segment对象或字典）
             
         Returns:
             完整的 SRT 格式字符串
@@ -83,14 +90,14 @@ class SRTFormatter:
             f.write(content)
     
     @staticmethod
-    def create_bilingual_srt(original_segments: List[Dict[str, Any]], 
-                           translated_segments: List[Dict[str, Any]]) -> str:
+    def create_bilingual_srt(original_segments: List[Union[Segment, Dict[str, Any]]], 
+                           translated_segments: List[Union[Segment, Dict[str, Any]]]) -> str:
         """
         创建双语字幕
         
         Args:
-            original_segments: 原始字幕段
-            translated_segments: 翻译字幕段
+            original_segments: 原始字幕段（Segment对象或字典）
+            translated_segments: 翻译字幕段（Segment对象或字典）
             
         Returns:
             双语 SRT 格式字符串
@@ -98,11 +105,23 @@ class SRTFormatter:
         srt_content = []
         
         for i, (orig, trans) in enumerate(zip(original_segments, translated_segments), 1):
-            start_time = SRTFormatter.format_time(orig["start"])
-            end_time = SRTFormatter.format_time(orig["end"])
+            # 处理Segment对象或字典
+            if isinstance(orig, Segment):
+                start_time = SRTFormatter.format_time(orig.start)
+                end_time = SRTFormatter.format_time(orig.end)
+                orig_text = orig.text.strip()
+            else:
+                start_time = SRTFormatter.format_time(orig["start"])
+                end_time = SRTFormatter.format_time(orig["end"])
+                orig_text = orig["text"].strip()
+            
+            if isinstance(trans, Segment):
+                trans_text = trans.text.strip()
+            else:
+                trans_text = trans["text"].strip()
             
             # 双语字幕：原文 + 翻译
-            text = f"{orig['text'].strip()}\n{trans['text'].strip()}"
+            text = f"{orig_text}\n{trans_text}"
             
             srt_content.append(f"{i}\n{start_time} --> {end_time}\n{text}\n")
         

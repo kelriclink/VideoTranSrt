@@ -11,6 +11,7 @@ from typing import List, Dict, Any, Optional
 import requests
 import json
 from .config_manager import config_manager
+from .models import Segment, TranslationResult
 
 
 class Translator:
@@ -20,20 +21,26 @@ class Translator:
         """翻译文本"""
         raise NotImplementedError
     
-    def translate_segments(self, segments: List[Dict[str, Any]], 
-                          target_language: str) -> List[Dict[str, Any]]:
+    def translate_segments(self, segments: List[Segment], 
+                          target_language: str, source_language: str = "auto") -> TranslationResult:
         """
         翻译分段文本（基于上下文的智能翻译）
         
         Args:
-            segments: 分段列表
+            segments: Segment 对象列表
             target_language: 目标语言
+            source_language: 源语言
             
         Returns:
-            翻译后的分段列表
+            TranslationResult 对象
         """
         if not segments:
-            return []
+            return TranslationResult(
+                segments=[],
+                source_language=source_language,
+                target_language=target_language,
+                translator_name=self.__class__.__name__
+            )
         
         translated_segments = []
         context_window = 10  # 上下文窗口大小
@@ -50,31 +57,37 @@ class Translator:
             # 翻译当前段
             translated_text = self._translate_with_context(
                 context_text, 
-                segment["text"], 
+                segment.text, 
                 target_language,
-                segment["start"],
-                segment["end"]
+                segment.start,
+                segment.end
             )
             
-            translated_segments.append({
-                "start": segment["start"],
-                "end": segment["end"],
-                "text": translated_text
-            })
+            translated_segments.append(Segment(
+                start=segment.start,
+                end=segment.end,
+                text=translated_text,
+                language=target_language
+            ))
         
-        return translated_segments
+        return TranslationResult(
+            segments=translated_segments,
+            source_language=source_language,
+            target_language=target_language,
+            translator_name=self.__class__.__name__
+        )
     
-    def _build_context_text(self, context_segments: List[Dict[str, Any]], 
+    def _build_context_text(self, context_segments: List[Segment], 
                            current_index: int) -> str:
         """构建带时间戳的上下文文本"""
         context_parts = []
         
         for j, seg in enumerate(context_segments):
-            timestamp = f"[{self._format_timestamp(seg['start'])}-{self._format_timestamp(seg['end'])}]"
+            timestamp = f"[{self._format_timestamp(seg.start)}-{self._format_timestamp(seg.end)}]"
             if j == current_index:
-                context_parts.append(f"{timestamp} {seg['text']} [CURRENT]")
+                context_parts.append(f"{timestamp} {seg.text} [CURRENT]")
             else:
-                context_parts.append(f"{timestamp} {seg['text']}")
+                context_parts.append(f"{timestamp} {seg.text}")
         
         return "\n".join(context_parts)
     

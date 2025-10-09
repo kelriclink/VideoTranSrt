@@ -9,6 +9,8 @@ from typing import List, Dict, Any, Optional
 import torch
 import os
 
+from .models import Segment, TranscriptionResult
+
 
 class Transcriber:
     """语音识别器"""
@@ -155,7 +157,7 @@ class Transcriber:
             }
         }
     
-    def transcribe(self, audio_path: Path, language: Optional[str] = None) -> Dict[str, Any]:
+    def transcribe(self, audio_path: Path, language: Optional[str] = None) -> TranscriptionResult:
         """
         转录音频文件
         
@@ -164,7 +166,7 @@ class Transcriber:
             language: 语言代码，None 表示自动检测
             
         Returns:
-            包含转录结果的字典
+            TranscriptionResult 对象
         """
         if self.model is None:
             self.load_model()
@@ -176,58 +178,52 @@ class Transcriber:
         print(f"开始转录: {audio_path}")
         
         # 执行转录
-        result = self.model.transcribe(
+        whisper_result = self.model.transcribe(
             str(audio_path),
             language=language,
             verbose=True
         )
         
         print("转录完成")
-        return result
+        
+        # 转换为结构化结果
+        return TranscriptionResult.from_whisper_result(whisper_result, self.model_size)
     
-    def get_segments(self, result: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def get_segments(self, result: TranscriptionResult) -> List[Segment]:
         """
         从转录结果中提取分段信息
         
         Args:
-            result: whisper 转录结果
+            result: TranscriptionResult 对象
             
         Returns:
-            分段列表，每个分段包含 start, end, text
+            Segment 对象列表
         """
-        segments = []
-        for segment in result.get("segments", []):
-            segments.append({
-                "start": segment["start"],
-                "end": segment["end"],
-                "text": segment["text"].strip()
-            })
-        
-        return segments
+        return result.segments
     
-    def get_full_text(self, result: Dict[str, Any]) -> str:
+    def get_full_text(self, result: TranscriptionResult) -> str:
         """
         获取完整转录文本
         
         Args:
-            result: whisper 转录结果
+            result: TranscriptionResult 对象
             
         Returns:
             完整文本
         """
-        return result.get("text", "").strip()
+        return result.text
     
-    def get_language(self, result: Dict[str, Any]) -> str:
+    def get_language(self, result: TranscriptionResult) -> str:
         """
         获取检测到的语言
         
         Args:
-            result: whisper 转录结果
+            result: TranscriptionResult 对象
             
         Returns:
             语言代码
         """
-        return result.get("language", "unknown")
+        return result.language
     
     def is_english_model(self, model_size: str = None) -> bool:
         """检查是否为英语专用模型"""
