@@ -109,7 +109,7 @@ class DistilWhisperPlugin(BaseModelLoaderPlugin):
                     "https://huggingface.co/distil-whisper/distil-large-v2/resolve/main/special_tokens_map.json"
                 ],
                 "type": "Distil-Whisper",
-                "language": "多语言",
+                "language": "英语",
                 "accuracy": "高",
                 "speed": "快"
             },
@@ -130,7 +130,7 @@ class DistilWhisperPlugin(BaseModelLoaderPlugin):
                     "https://huggingface.co/distil-whisper/distil-large-v3.5/resolve/main/special_tokens_map.json"
                 ],
                 "type": "Distil-Whisper",
-                "language": "多语言",
+                "language": "英语",
                 "accuracy": "高",
                 "speed": "快"
             },
@@ -151,7 +151,7 @@ class DistilWhisperPlugin(BaseModelLoaderPlugin):
                     "https://huggingface.co/distil-whisper/distil-large-v3/resolve/main/special_tokens_map.json"
                 ],
                 "type": "Distil-Whisper",
-                "language": "多语言",
+                "language": "英语",
                 "accuracy": "高",
                 "speed": "快"
             },
@@ -229,38 +229,37 @@ class DistilWhisperPlugin(BaseModelLoaderPlugin):
             model_dir = self.model_path / folder_name
             model_dir.mkdir(parents=True, exist_ok=True)
             
-            # 需要下载的文件列表
-            files_to_download = [
-                "openvino_model.xml",
-                "openvino_model.bin",
-                "config.json",
-                "tokenizer.json",
-                "tokenizer_config.json",
-                "preprocessor_config.json"
-            ]
+            # 获取模型的下载URL列表
+            model_info = self.get_downloadable_models().get(model_name)
+            if not model_info:
+                if progress_callback:
+                    progress_callback(model_name, 0, f"不支持的模型: {model_name}")
+                return False
             
-            base_url = f"https://huggingface.co/{model_name}/resolve/main"
+            download_urls = model_info.get("download_urls", [])
+            if not download_urls:
+                if progress_callback:
+                    progress_callback(model_name, 0, f"没有找到下载链接: {model_name}")
+                return False
             
-            total_files = len(files_to_download)
-            for i, filename in enumerate(files_to_download):
+            total_files = len(download_urls)
+            for i, url in enumerate(download_urls):
                 try:
+                    filename = url.split("/")[-1]
                     if progress_callback:
                         progress_callback(model_name, int((i / total_files) * 100), f"下载 {filename}")
                     
-                    url = f"{base_url}/{filename}"
                     success = self._download_file(url, model_dir / filename)
                     
-                    if not success and filename in ["openvino_model.xml", "openvino_model.bin"]:
-                        # 这些是必需文件
+                    if not success:
                         if progress_callback:
-                            progress_callback(model_name, 0, f"下载必需文件失败: {filename}")
+                            progress_callback(model_name, 0, f"下载文件失败: {filename}")
                         return False
                         
                 except Exception as e:
-                    if filename in ["openvino_model.xml", "openvino_model.bin"]:
-                        if progress_callback:
-                            progress_callback(model_name, 0, f"下载失败: {str(e)}")
-                        return False
+                    if progress_callback:
+                        progress_callback(model_name, 0, f"下载失败: {str(e)}")
+                    return False
             
             # 创建下载完成标记文件
             (model_dir / "download_complete.txt").write_text("download completed")
