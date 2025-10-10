@@ -8,6 +8,7 @@ import urllib3
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Callable
 from ..base import BaseModelLoaderPlugin, ModelWrapper
+from ...huggingface_validator import HuggingFaceValidator
 
 # 禁用SSL警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -414,8 +415,39 @@ class OpenVINOOptimizedPlugin(BaseModelLoaderPlugin):
         model_dir.mkdir(parents=True, exist_ok=True)
         
         try:
-            total_files = len(model_info["download_urls"])
-            for i, url in enumerate(model_info["download_urls"]):
+            download_urls = model_info["download_urls"]
+            
+            # 预下载验证：检查文件列表是否与Hugging Face实际文件匹配
+            if progress_callback:
+                progress_callback(f"验证文件列表...")
+            
+            validator = HuggingFaceValidator()
+            is_valid, report = validator.validate_download_urls(model_name, download_urls)
+            
+            if not is_valid:
+                print(f"\n警告: 模型 {model_name} 的文件列表与Hugging Face实际文件不匹配")
+                validator.print_validation_report(report)
+                
+                # 获取修正后的文件列表
+                expected_files = []
+                for url in download_urls:
+                    if "/resolve/main/" in url:
+                        filename = url.split("/resolve/main/")[-1]
+                        expected_files.append(filename)
+                
+                corrected_files = validator.get_corrected_file_list(model_name, expected_files)
+                if corrected_files:
+                    print(f"将使用修正后的文件列表进行下载...")
+                    # 重新构建下载URL列表
+                    base_url = download_urls[0].split("/resolve/main/")[0] + "/resolve/main/"
+                    download_urls = [base_url + filename for filename in corrected_files]
+                else:
+                    if progress_callback:
+                        progress_callback("无法获取有效的文件列表")
+                    return False
+            
+            total_files = len(download_urls)
+            for i, url in enumerate(download_urls):
                 file_name = url.split("/")[-1]
                 file_path = model_dir / file_name
                 

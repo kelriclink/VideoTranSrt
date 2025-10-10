@@ -2,6 +2,8 @@
 Intel GPU优化模型加载器插件
 """
 
+import os
+import numpy as np
 import librosa
 import requests
 import ssl
@@ -9,7 +11,7 @@ import urllib3
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Callable
 from ..base import BaseModelLoaderPlugin, ModelWrapper
-
+from ...huggingface_validator import HuggingFaceValidator
 # 禁用SSL警告和验证
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 ssl._create_default_https_context = ssl._create_unverified_context
@@ -356,13 +358,35 @@ class IntelGPUPlugin(BaseModelLoaderPlugin):
                 "preprocessor_config.json"
             ]
             
+            # 预下载验证：检查文件列表是否与Hugging Face实际文件匹配
+            if progress_callback:
+                progress_callback(model_name, 5, "验证文件列表...")
+            
+            validator = HuggingFaceValidator()
             base_url = f"https://huggingface.co/{model_name}/resolve/main"
+            download_urls = [f"{base_url}/{filename}" for filename in files_to_download]
+            
+            is_valid, report = validator.validate_download_urls(model_name, download_urls)
+            
+            if not is_valid:
+                print(f"\n警告: 模型 {model_name} 的文件列表与Hugging Face实际文件不匹配")
+                validator.print_validation_report(report)
+                
+                # 获取修正后的文件列表
+                corrected_files = validator.get_corrected_file_list(model_name, files_to_download)
+                if corrected_files:
+                    print(f"将使用修正后的文件列表进行下载...")
+                    files_to_download = corrected_files
+                else:
+                    if progress_callback:
+                        progress_callback(model_name, 0, "无法获取有效的文件列表")
+                    return False
             
             total_files = len(files_to_download)
             for i, filename in enumerate(files_to_download):
                 try:
                     if progress_callback:
-                        progress_callback(model_name, int((i / total_files) * 100), f"下载 {filename}")
+                        progress_callback(model_name, int(10 + (i / total_files) * 85), f"下载 {filename}")
                     
                     url = f"{base_url}/{filename}"
                     success = self._download_file(url, model_dir / filename)

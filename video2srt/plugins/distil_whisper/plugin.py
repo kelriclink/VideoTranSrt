@@ -2,6 +2,7 @@
 Distil-Whisper模型加载器插件
 """
 
+import os
 import requests
 import ssl
 import urllib3
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any, Callable
 from ..base import BaseModelLoaderPlugin
 from ..intel_gpu.plugin import OpenVINOWhisperWrapper
+from ...huggingface_validator import HuggingFaceValidator
 
 # 禁用SSL警告和验证
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -227,11 +229,6 @@ class DistilWhisperPlugin(BaseModelLoaderPlugin):
             return True
         
         try:
-            # 获取模型目录
-            folder_name = model_name.replace("/", "_")
-            model_dir = self.model_path / folder_name
-            model_dir.mkdir(parents=True, exist_ok=True)
-            
             # 获取模型的下载URL列表
             model_info = self.get_downloadable_models().get(model_name)
             if not model_info:
@@ -245,12 +242,46 @@ class DistilWhisperPlugin(BaseModelLoaderPlugin):
                     progress_callback(model_name, 0, f"没有找到下载链接: {model_name}")
                 return False
             
+            # 预下载验证：检查文件列表是否与Hugging Face实际文件匹配
+            if progress_callback:
+                progress_callback(model_name, 5, "验证文件列表...")
+            
+            validator = HuggingFaceValidator()
+            is_valid, report = validator.validate_download_urls(model_name, download_urls)
+            
+            if not is_valid:
+                print(f"\n警告: 模型 {model_name} 的文件列表与Hugging Face实际文件不匹配")
+                validator.print_validation_report(report)
+                
+                # 获取修正后的文件列表
+                expected_files = []
+                for url in download_urls:
+                    if "/resolve/main/" in url:
+                        filename = url.split("/resolve/main/")[-1]
+                        expected_files.append(filename)
+                
+                corrected_files = validator.get_corrected_file_list(model_name, expected_files)
+                if corrected_files:
+                    print(f"将使用修正后的文件列表进行下载...")
+                    # 重新构建下载URL列表
+                    base_url = download_urls[0].split("/resolve/main/")[0] + "/resolve/main/"
+                    download_urls = [base_url + filename for filename in corrected_files]
+                else:
+                    if progress_callback:
+                        progress_callback(model_name, 0, "无法获取有效的文件列表")
+                    return False
+            
+            # 获取模型目录
+            folder_name = model_name.replace("/", "_")
+            model_dir = self.model_path / folder_name
+            model_dir.mkdir(parents=True, exist_ok=True)
+            
             total_files = len(download_urls)
             for i, url in enumerate(download_urls):
                 try:
                     filename = url.split("/")[-1]
                     if progress_callback:
-                        progress_callback(model_name, int((i / total_files) * 100), f"下载 {filename}")
+                        progress_callback(model_name, int(10 + (i / total_files) * 85), f"下载 {filename}")
                     
                     success = self._download_file(url, model_dir / filename)
                     
