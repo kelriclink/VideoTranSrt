@@ -159,29 +159,14 @@ def validate_model_files(model_name: str, expected_files: List[str]) -> bool:
 
 
 if __name__ == "__main__":
-    # 测试代码
+    # 示例：校验标准 Whisper 模型的文件列表（仅演示调用）
     validator = HuggingFaceValidator()
-    
-    # 测试 distil-large-v3.5
-    test_files = [
+    sample_files = [
+        "pytorch_model.bin",
         "config.json",
-        "generation_config.json", 
-        "merges.txt",
-        "model.safetensors",
-        "preprocessor_config.json",
-        "special_tokens_map.json",
         "tokenizer.json",
         "tokenizer_config.json",
-        "vocab.json",
-        "normalizer.json"  # 这个文件不存在
+        "vocab.json"
     ]
-    
-    is_valid, report = validator.validate_file_list("distil-whisper/distil-large-v3.5", test_files)
+    is_valid, report = validator.validate_file_list("openai/whisper-base", sample_files)
     validator.print_validation_report(report)
-    
-    # 获取修正后的文件列表
-    corrected_files = validator.get_corrected_file_list("distil-whisper/distil-large-v3.5", test_files)
-    if corrected_files:
-        print(f"\n修正后的文件列表:")
-        for file in corrected_files:
-            print(f"  - {file}")

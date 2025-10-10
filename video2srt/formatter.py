@@ -54,7 +54,7 @@ class SRTFormatter:
         return f"{index}\n{start_time} --> {end_time}\n{text}\n"
     
     @staticmethod
-    def format_segments(segments: List[Union[Segment, Dict[str, Any]]]) -> str:
+    def format_segments(segments: List[Union[Segment, Dict[str, Any]]], min_duration: float = 0.5) -> str:
         """
         格式化所有字幕段
         
@@ -64,11 +64,47 @@ class SRTFormatter:
         Returns:
             完整的 SRT 格式字符串
         """
+        # 先进行时间合法性修正，避免零时长/时间倒退导致播放器无法加载
+        # 归一化为字典，便于处理
+        norm_segments: List[Dict[str, Any]] = []
+        for seg in segments:
+            if isinstance(seg, Segment):
+                start = float(getattr(seg, 'start', 0.0) or 0.0)
+                end = float(getattr(seg, 'end', start) if getattr(seg, 'end', None) is not None else start)
+                text = (getattr(seg, 'text', '') or '').strip()
+            else:
+                start = float(seg.get('start', 0.0) or 0.0)
+                end = float(seg.get('end', start) if seg.get('end', None) is not None else start)
+                text = (seg.get('text', '') or '').strip()
+            if not text:
+                continue
+            if start < 0:
+                start = 0.0
+            if end < 0:
+                end = 0.0
+            norm_segments.append({"start": start, "end": end, "text": text})
+
+        # 排序并修正时间
+        norm_segments.sort(key=lambda s: (s["start"], s["end"]))
+        fixed: List[Dict[str, Any]] = []
+        last_end = 0.0
+        for seg in norm_segments:
+            start = seg["start"]
+            end = seg["end"]
+            text = seg["text"]
+            if start < last_end:
+                start = last_end
+            if end <= start:
+                end = start + min_duration
+            if (end - start) < min_duration:
+                end = start + min_duration
+            fixed.append({"start": start, "end": end, "text": text})
+            last_end = end
+
+        # 输出
         srt_content = []
-        
-        for i, segment in enumerate(segments, 1):
+        for i, segment in enumerate(fixed, 1):
             srt_content.append(SRTFormatter.format_segment(segment, i))
-        
         return "\n".join(srt_content)
     
     @staticmethod

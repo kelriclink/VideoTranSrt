@@ -45,56 +45,17 @@ class Transcriber:
             设备名称: 'cpu', 'cuda', 'openvino' 等
         """
         device_config = config_manager.get_whisper_device()
-        intel_gpu_enabled = config_manager.is_intel_gpu_enabled()
-        
-        # 检查是否为Intel GPU专用模型
-        is_intel_model = (self.model_size.startswith("Intel/") and "openvino" in self.model_size)
         
         if device_config == 'auto':
-            # 自动选择设备
-            if is_intel_model and intel_gpu_enabled and self._is_intel_gpu_available():
-                return 'openvino'
-            elif torch.cuda.is_available():
-                return 'cuda'
-            else:
-                return 'cpu'
-        elif device_config == 'intel_gpu' and intel_gpu_enabled:
-            if is_intel_model and self._is_intel_gpu_available():
-                return 'openvino'
-            else:
-                print("警告: Intel GPU不可用或模型不支持，回退到CPU")
-                return 'cpu'
-        else:
-            return device_config
-    
-    def _is_intel_gpu_available(self) -> bool:
-        """
-        检查Intel GPU是否可用
+            # 自动选择设备：优先CUDA，其次CPU
+            return 'cuda' if torch.cuda.is_available() else 'cpu'
         
-        Returns:
-            bool: Intel GPU是否可用
-        """
-        try:
-            # 检查OpenVINO是否可用
-            import openvino as ov
-            core = ov.Core()
-            devices = core.available_devices
-            
-            # 检查是否有GPU设备
-            gpu_devices = [device for device in devices if 'GPU' in device]
-            if gpu_devices:
-                print(f"检测到Intel GPU设备: {gpu_devices}")
-                return True
-            else:
-                print("未检测到Intel GPU设备")
-                return False
-                
-        except ImportError:
-            print("OpenVINO未安装，无法使用Intel GPU")
-            return False
-        except Exception as e:
-            print(f"检查Intel GPU时出错: {e}")
-            return False
+        # 仅允许 'cpu' 或 'cuda'，其他值回退为 'cpu'
+        if device_config in ('cpu', 'cuda'):
+            return device_config
+        
+        return 'cpu'
+    
     
     def load_model(self):
         """加载 Whisper 模型"""
@@ -124,9 +85,7 @@ class Transcriber:
                 print("2. 设置环境变量: set PYTHONHTTPSVERIFY=0")
                 print("3. 使用离线模式或手动下载模型")
                 print(f"4. 检查模型路径: {self.model_path}")
-                if self.device == 'openvino':
-                    print("5. 确保已安装OpenVINO: pip install openvino")
-                    print("6. 检查Intel GPU驱动是否正确安装")
+                # 已移除 Intel GPU/OpenVINO 相关提示
                 raise RuntimeError(f"无法加载 Whisper 模型: {e}")
     
     def get_model_info(self) -> Dict[str, Any]:

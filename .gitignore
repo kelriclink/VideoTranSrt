@@ -142,3 +142,16 @@ model/*.joblib
 # Config files (keep default but ignore user config)
 config/config.json
 !config/default_config.json
+# Ignore local model caches and heavy assets
+model/
+models/
+
+# Build outputs
+dist/
+build/
+
+# Python caches and virtual env
+__pycache__/
+*.pyc
+.venv/
+.env

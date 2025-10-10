@@ -115,7 +115,7 @@ class Video2SRTGUI(QMainWindow):
         self.clear_btn = QPushButton("清空")
         self.clear_btn.clicked.connect(self.clear_all)
         
-        self.config_btn = QPushButton("配置")
+        self.config_btn = QPushButton("设置")
         self.config_btn.clicked.connect(self.open_config)
         
         control_layout.addWidget(self.process_btn)
@@ -162,12 +162,10 @@ class Video2SRTGUI(QMainWindow):
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
         
-        # 设置菜单
-        settings_menu = menubar.addMenu('设置')
-        
-        config_action = QAction('配置设置', self)
-        config_action.triggered.connect(self.open_config)
-        settings_menu.addAction(config_action)
+        # 设置（点击即打开配置对话框）
+        settings_action = QAction('设置', self)
+        settings_action.triggered.connect(self.open_config)
+        menubar.addAction(settings_action)
         
         # 帮助菜单
         help_menu = menubar.addMenu('帮助')
@@ -220,25 +218,17 @@ class Video2SRTGUI(QMainWindow):
         download_manager = get_download_manager()
         all_models = download_manager.get_all_models()
         
-        # 按类型分组添加模型
+        # 仅按标准 Whisper 分类添加模型
         for model_name, model_info in all_models.items():
-            plugin_name = model_info.get('plugin_name', '')
-            
-            # 根据插件确定显示标签
-            if plugin_name == 'distil_whisper':
-                type_label = "Distil-Whisper"
-            elif plugin_name == 'intel_gpu':
-                type_label = "Intel优化"
-            elif model_name.endswith('.en'):
+            if model_name.endswith('.en'):
                 type_label = "英语专用"
             else:
                 type_label = "多语言"
-            
             display_text = f"{model_name} ({type_label})"
             self.model_combo.addItem(display_text)
         
         self.model_combo.setCurrentText('base (多语言)')
-        self.model_combo.setToolTip("选择 Whisper 模型：\n• .en 模型：英语专用，准确性更高\n• 多语言模型：支持多种语言\n• Intel GPU优化：专为Intel显卡优化的模型\n• Distil-Whisper：轻量化版本，速度更快")
+        self.model_combo.setToolTip("选择 Whisper 模型：\n• .en 模型：英语专用，准确性更高\n• 多语言模型：支持多种语言")
         layout.addWidget(self.model_combo, 0, 1)
         
         # 语言选择

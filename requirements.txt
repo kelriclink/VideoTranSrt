@@ -6,15 +6,7 @@ torchaudio>=2.0.0
 # Audio processing
 librosa>=0.10.0
 
-# Intel GPU support (optional)
-# OpenVINO 2024.5.0+ is recommended for best Intel GPU performance
-openvino>=2024.5.0
-openvino-tokenizers>=2024.5.0
-openvino-genai>=2024.5.0
-# Optimum Intel for Whisper model conversion and optimization
-optimum[openvino]>=1.12.0
-# Alternative Whisper OpenVINO implementation
-# whisper-openvino>=0.1.0
+# Intel/OpenVINO 依赖已移除（如需使用相关功能，请自行添加）
 
 # Audio/video processing
 ffmpeg-python>=0.2.0

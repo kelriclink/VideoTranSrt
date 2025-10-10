@@ -115,10 +115,61 @@ class SRTFormatter(BaseFormatter):
         Returns:
             完整的SRT内容
         """
+        # 先进行时间合法性与顺序修正，避免播放器无法解析
+        min_duration = float(kwargs.get("min_duration", 0.5))  # 最短时长，默认0.5秒
+
+        # 归一化为字典列表，便于处理
+        norm_segments: List[Dict[str, Any]] = []
+        for seg in segments:
+            if isinstance(seg, Segment):
+                start = float(getattr(seg, 'start', 0.0) or 0.0)
+                end = float(getattr(seg, 'end', start) if getattr(seg, 'end', None) is not None else start)
+                text = (getattr(seg, 'text', '') or '').strip()
+            else:
+                start = float(seg.get('start', 0.0) or 0.0)
+                end = float(seg.get('end', start) if seg.get('end', None) is not None else start)
+                text = (seg.get('text', '') or '').strip()
+
+            if not text:
+                continue
+
+            # 非负时间
+            if start < 0:
+                start = 0.0
+            if end < 0:
+                end = 0.0
+
+            norm_segments.append({"start": start, "end": end, "text": text})
+
+        # 按开始时间排序
+        norm_segments.sort(key=lambda s: (s["start"], s["end"]))
+
+        # 修正时间倒退与零/负时长
+        fixed: List[Dict[str, Any]] = []
+        last_end = 0.0
+        for seg in norm_segments:
+            start = seg["start"]
+            end = seg["end"]
+            text = seg["text"]
+
+            # 保证时间不倒退
+            if start < last_end:
+                start = last_end
+            # 保证结束时间大于开始时间
+            if end <= start:
+                end = start + min_duration
+            # 保证最小时长
+            if (end - start) < min_duration:
+                end = start + min_duration
+
+            fixed.append({"start": start, "end": end, "text": text})
+            last_end = end
+
+        # 输出
         srt_content = []
-        for i, segment in enumerate(segments, 1):
+        for i, segment in enumerate(fixed, 1):
             srt_content.append(self.format_segment(segment, i))
-        
+
         return "\n".join(srt_content)
     
     def create_bilingual_srt(self, original_segments: List[Union[Segment, Dict]], 

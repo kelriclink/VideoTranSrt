@@ -140,26 +140,17 @@ class ConfigDialog(QDialog):
         # 使用插件系统获取所有可用的模型
         all_models = self.download_manager.get_all_models()
         
-        # 按类型分组添加模型
+        # 仅按标准 Whisper 分类添加模型
         for model_name, model_info in all_models.items():
-            model_type = model_info.get('type', 'whisper')
-            plugin_name = model_info.get('plugin_name', '')
-            
-            # 根据模型类型和插件确定显示标签
-            if plugin_name == 'distil_whisper':
-                type_label = "Distil-Whisper"
-            elif plugin_name == 'intel_gpu':
-                type_label = "Intel优化"
-            elif model_name.endswith('.en'):
+            if model_name.endswith('.en'):
                 type_label = "英语专用"
             else:
                 type_label = "多语言"
-            
             display_text = f"{model_name} ({type_label})"
             self.whisper_model_combo.addItem(display_text)
         
         self.whisper_model_combo.setCurrentText('base (多语言)')
-        self.whisper_model_combo.setToolTip("选择 Whisper 模型：\n• .en 模型：英语专用，准确性更高\n• 多语言模型：支持多种语言\n• Intel GPU优化：专为Intel显卡优化的模型\n• turbo：优化版本，速度更快")
+        self.whisper_model_combo.setToolTip("选择 Whisper 模型：\n• .en 模型：英语专用，准确性更高\n• 多语言模型：支持多种语言\n• turbo：优化版本，速度更快")
         whisper_layout.addWidget(self.whisper_model_combo, 0, 1)
         
         whisper_layout.addWidget(QLabel("默认语言:"), 1, 0)
@@ -172,15 +163,11 @@ class ConfigDialog(QDialog):
         
         whisper_layout.addWidget(QLabel("设备:"), 2, 0)
         self.whisper_device_combo = QComboBox()
-        self.whisper_device_combo.addItems(['auto (自动)', 'cpu', 'cuda', 'intel_gpu (Intel显卡)'])
+        self.whisper_device_combo.addItems(['auto (自动)', 'cpu', 'cuda'])
         self.whisper_device_combo.setCurrentText('auto (自动)')
         whisper_layout.addWidget(self.whisper_device_combo, 2, 1)
         
-        # Intel GPU 启用选项
-        whisper_layout.addWidget(QLabel("启用Intel显卡:"), 3, 0)
-        self.intel_gpu_enabled_check = QCheckBox("启用Intel GPU加速")
-        self.intel_gpu_enabled_check.setToolTip("启用后将在自动模式下优先使用Intel显卡进行推理")
-        whisper_layout.addWidget(self.intel_gpu_enabled_check, 3, 1)
+        # 已移除 Intel GPU 相关选项
         
         # 模型路径设置
         whisper_layout.addWidget(QLabel("模型路径:"), 4, 0)
@@ -213,10 +200,7 @@ class ConfigDialog(QDialog):
             "• medium: 769MB, 较慢, 高准确性\n"
             "• large: 1550MB, 最慢, 最高准确性\n"
             "• turbo: 809MB, 快速, 优化版本\n\n"
-            "Intel GPU优化模型:\n"
-            "• distil-whisper系列: 蒸馏模型，速度更快\n"
-            "• Intel优化模型: 专为Intel GPU优化，支持INT8量化\n"
-            "• 需要Intel GPU和OpenVINO支持"
+            ""
         )
         info_text.setReadOnly(True)
         layout.addWidget(info_text)
@@ -507,14 +491,8 @@ class ConfigDialog(QDialog):
         # 查找匹配的模型并生成显示文本
         if model_size in all_models:
             model_info = all_models[model_size]
-            plugin_name = model_info.get('plugin_name', '')
-            
-            # 根据插件确定显示标签
-            if plugin_name == 'distil_whisper':
-                type_label = "Distil-Whisper"
-            elif plugin_name == 'intel_gpu':
-                type_label = "Intel优化"
-            elif model_size.endswith('.en'):
+            # 仅按标准 Whisper 分类生成标签
+            if model_size.endswith('.en'):
                 type_label = "英语专用"
             else:
                 type_label = "多语言"
@@ -554,13 +532,12 @@ class ConfigDialog(QDialog):
         if device == 'auto':
             self.whisper_device_combo.setCurrentText('auto (自动)')
         elif device == 'intel_gpu':
-            self.whisper_device_combo.setCurrentText('intel_gpu (Intel显卡)')
+            # Intel 设备已不再支持，回退为 auto
+            self.whisper_device_combo.setCurrentText('auto (自动)')
         else:
             self.whisper_device_combo.setCurrentText(device)
         
-        # 加载Intel GPU启用状态
-        intel_gpu_enabled = config_manager.is_intel_gpu_enabled()
-        self.intel_gpu_enabled_check.setChecked(intel_gpu_enabled)
+        # 已移除 Intel GPU 启用状态配置
         
         # 加载模型路径
         model_path = config_manager.get_whisper_model_path()
@@ -619,10 +596,7 @@ class ConfigDialog(QDialog):
             
             # 移除各种类型标签
             type_labels = [
-                ' (英语专用)', ' (多语言)', ' (多语言优化)', 
-                ' (Distil-Whisper)', ' (Intel优化)', 
-                ' (Distil-Whisper (Intel GPU))', ' (Intel优化 (Intel GPU))',
-                ' (英语专用 (Intel GPU))', ' (多语言 (Intel GPU))'
+                ' (英语专用)', ' (多语言)', ' (多语言优化)'
             ]
             
             for label in type_labels:
@@ -644,13 +618,10 @@ class ConfigDialog(QDialog):
             device = self.whisper_device_combo.currentText()
             if device == 'auto (自动)':
                 device = 'auto'
-            elif device == 'intel_gpu (Intel显卡)':
-                device = 'intel_gpu'
+            # Intel 设备已移除
             config_manager.set('whisper.device', device)
             
-            # 保存Intel GPU启用状态
-            intel_gpu_enabled = self.intel_gpu_enabled_check.isChecked()
-            config_manager.set_intel_gpu_enabled(intel_gpu_enabled)
+            # 已移除 Intel GPU 启用状态保存
             
             # 保存模型路径
             model_path = self.model_path_edit.text().strip()
