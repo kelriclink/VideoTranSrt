@@ -79,9 +79,15 @@ class TranslatorInfo:
     @property
     def is_healthy(self) -> bool:
         """是否健康"""
-        return (self.status in [TranslatorStatus.AVAILABLE, TranslatorStatus.DEGRADED] and
-                self.success_rate >= 0.5 and
-                self.config.enabled)
+        # 初始阶段（尚未请求过）应视为健康，以便完成首次尝试
+        if not self.config.enabled:
+            return False
+        if self.status not in [TranslatorStatus.AVAILABLE, TranslatorStatus.DEGRADED]:
+            return False
+        if self.total_requests == 0:
+            return True
+        # 对已有历史的翻译器，要求成功率达到阈值
+        return self.success_rate >= 0.5
     
     @property
     def is_rate_limited(self) -> bool:

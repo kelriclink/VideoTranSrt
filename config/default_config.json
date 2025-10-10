@@ -37,6 +37,14 @@
             "enabled": true
         }
     },
+    "translation": {
+        "mode": "block", 
+        "context_window": 10,
+        "max_block_chars": 600,
+        "max_gap_seconds": 1.0,
+        "batch_enabled": true,
+        "cache_enabled": true
+    },
     "whisper": {
         "model_size": "base",
         "language": "auto",

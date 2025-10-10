@@ -24,15 +24,11 @@ class Translator:
     def translate_segments(self, segments: List[Segment], 
                           target_language: str, source_language: str = "auto") -> TranslationResult:
         """
-        翻译分段文本（基于上下文的智能翻译）
+        翻译分段文本，支持两种模式：
+        - per_segment：逐段翻译（保留旧实现的行为）
+        - block：按句/段合并为块后整体翻译，再映射回原分段（更省成本、提升上下文一致性）
         
-        Args:
-            segments: Segment 对象列表
-            target_language: 目标语言
-            source_language: 源语言
-            
-        Returns:
-            TranslationResult 对象
+        通过配置 translation.mode 控制，默认使用 block。
         """
         if not segments:
             return TranslationResult(
@@ -41,41 +37,156 @@ class Translator:
                 target_language=target_language,
                 translator_name=self.__class__.__name__
             )
-        
+
+        mode = config_manager.get('translation.mode', 'block')
+        if mode == 'per_segment':
+            return self._translate_segments_per_segment(segments, target_language, source_language)
+        else:
+            return self._translate_segments_block_mode(segments, target_language, source_language)
+
+    def _translate_segments_per_segment(self, segments: List[Segment], target_language: str, source_language: str) -> TranslationResult:
+        """保持原有逐段+固定窗口上下文的实现"""
         translated_segments = []
-        context_window = 10  # 上下文窗口大小
-        
+        context_window = config_manager.get('translation.context_window', 10)
+
         for i, segment in enumerate(segments):
-            # 获取上下文
             start_idx = max(0, i - context_window // 2)
             end_idx = min(len(segments), i + context_window // 2 + 1)
             context_segments = segments[start_idx:end_idx]
-            
-            # 构建带时间戳的上下文文本
+
             context_text = self._build_context_text(context_segments, i - start_idx)
-            
-            # 翻译当前段
+
             translated_text = self._translate_with_context(
-                context_text, 
-                segment.text, 
+                context_text,
+                segment.text,
                 target_language,
                 segment.start,
                 segment.end
             )
-            
+
             translated_segments.append(Segment(
                 start=segment.start,
                 end=segment.end,
                 text=translated_text,
                 language=target_language
             ))
-        
+
         return TranslationResult(
             segments=translated_segments,
             source_language=source_language,
             target_language=target_language,
             translator_name=self.__class__.__name__
         )
+
+    def _translate_segments_block_mode(self, segments: List[Segment], target_language: str, source_language: str) -> TranslationResult:
+        """按块翻译并回映射到原分段，兼顾语义与速率/成本"""
+        # 构建块
+        max_block_chars = int(config_manager.get('translation.max_block_chars', 600))
+        max_gap_seconds = float(config_manager.get('translation.max_gap_seconds', 1.0))
+        blocks = self._build_blocks(segments, max_block_chars=max_block_chars, max_gap_seconds=max_gap_seconds)
+
+        # 翻译块（支持批量）
+        block_texts = [b['text'] for b in blocks]
+        translated_block_texts = self.translate_texts(block_texts, target_language)
+
+        # 将块译文映射回原分段
+        mapped_segments: List[Segment] = []
+        for block, translated_text in zip(blocks, translated_block_texts):
+            block_segs = block['segments']
+            # 使用长度比例将译文切回各分段
+            original_texts = [s.text for s in block_segs]
+            splits = self._split_translated_text_by_ratio(translated_text, original_texts)
+
+            for seg, t_text in zip(block_segs, splits):
+                mapped_segments.append(Segment(
+                    start=seg.start,
+                    end=seg.end,
+                    text=t_text,
+                    language=target_language
+                ))
+
+        return TranslationResult(
+            segments=mapped_segments,
+            source_language=source_language,
+            target_language=target_language,
+            translator_name=self.__class__.__name__
+        )
+
+    def translate_texts(self, texts: List[str], target_language: str) -> List[str]:
+        """默认逐条翻译的批量方法，子类可覆盖以优化成本/速率"""
+        results = []
+        for t in texts:
+            results.append(self.translate_text(t, target_language))
+        return results
+
+    def _build_blocks(self, segments: List[Segment], max_block_chars: int, max_gap_seconds: float) -> List[Dict[str, Any]]:
+        """根据标点与时间间隔将分段合并成块"""
+        blocks: List[Dict[str, Any]] = []
+        current_block: List[Segment] = []
+        current_len = 0
+
+        def should_end_block(prev: Optional[Segment], curr: Segment, curr_len: int) -> bool:
+            if prev is None:
+                return False
+            # 时间间隔大于阈值时切块
+            if (curr.start - prev.end) > max_gap_seconds:
+                return True
+            # 超过最大块长度
+            if curr_len > max_block_chars:
+                return True
+            # 当前段末尾有强标点，优先结束块
+            return bool(re.search(r"[\.\!\?。！？；;]$", prev.text.strip()))
+
+        for seg in segments:
+            prev = current_block[-1] if current_block else None
+            if prev and should_end_block(prev, seg, current_len + len(seg.text)):
+                # 输出当前块
+                block_text = " ".join(s.text.strip() for s in current_block).strip()
+                if block_text:
+                    blocks.append({
+                        'segments': current_block,
+                        'text': block_text
+                    })
+                current_block = []
+                current_len = 0
+
+            current_block.append(seg)
+            current_len += len(seg.text)
+
+        # 末尾块
+        if current_block:
+            block_text = " ".join(s.text.strip() for s in current_block).strip()
+            if block_text:
+                blocks.append({
+                    'segments': current_block,
+                    'text': block_text
+                })
+
+        return blocks
+
+    def _split_translated_text_by_ratio(self, translated_text: str, original_texts: List[str]) -> List[str]:
+        """按照原文各段的字符占比，将块译文切分为若干段"""
+        if not original_texts:
+            return [translated_text]
+        total = sum(max(len(t), 1) for t in original_texts)
+        # 依据占比计算每段的目标长度
+        target_lengths = [max(1, int(round(len(t) / total * max(len(translated_text), 1)))) for t in original_texts]
+        # 由于四舍五入可能导致总长不一致，调整最后一段长度以匹配
+        length_diff = len(translated_text) - sum(target_lengths)
+        if target_lengths:
+            target_lengths[-1] += length_diff
+            if target_lengths[-1] < 1:
+                target_lengths[-1] = 1
+
+        # 按长度切分
+        splits = []
+        idx = 0
+        for tl in target_lengths:
+            splits.append(translated_text[idx: idx + tl].strip())
+            idx += tl
+        # 如果出现空切片，用一个短空格占位，避免完全空
+        splits = [s if s else "" for s in splits]
+        return splits
     
     def _build_context_text(self, context_segments: List[Segment], 
                            current_index: int) -> str:
@@ -273,6 +384,9 @@ class OpenAITranslator(Translator):
         self.model = self.config.get('model', 'gpt-3.5-turbo')
         self.max_tokens = self.config.get('max_tokens', 4000)
         self.temperature = self.config.get('temperature', 0.3)
+        # 额外的翻译优化设置
+        self.cache_enabled = bool(config_manager.get('translation.cache_enabled', True))
+        self._cache: Dict[str, str] = {}
     
     def _translate_with_context(self, context_text: str, current_text: str, 
                               target_language: str, start_time: float, end_time: float) -> str:
@@ -393,6 +507,64 @@ class OpenAITranslator(Translator):
         except Exception as e:
             print(f"OpenAI 翻译失败: {e}")
             return text
+
+    def translate_texts(self, texts: List[str], target_language: str) -> List[str]:
+        """OpenAI 批量翻译实现：
+        - 复用同一客户端，减少连接开销
+        - 文本去重与缓存，降低成本
+        - 逐条调用 chat.completions 以避开批量的上下文串扰
+        """
+        import openai
+
+        client = openai.OpenAI(
+            api_key=self.api_key,
+            base_url=self.base_url
+        )
+
+        language_names = {
+            "en": "英语",
+            "zh": "中文",
+            "ja": "日语",
+            "ko": "韩语",
+            "fr": "法语",
+            "de": "德语",
+            "es": "西班牙语",
+            "ru": "俄语"
+        }
+        target_lang_name = language_names.get(target_language, target_language)
+
+        results: List[str] = []
+        for text in texts:
+            cache_key = f"{target_language}::" + text
+            if self.cache_enabled and cache_key in self._cache:
+                results.append(self._cache[cache_key])
+                continue
+
+            try:
+                resp = client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": f"你是一个专业的翻译助手。请将以下文本翻译成{target_lang_name}，保持原文语气和风格，只返回翻译结果，不要任何解释。"
+                        },
+                        {
+                            "role": "user",
+                            "content": text
+                        }
+                    ],
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature
+                )
+                translated = resp.choices[0].message.content.strip()
+                if self.cache_enabled:
+                    self._cache[cache_key] = translated
+                results.append(translated)
+            except Exception as e:
+                print(f"OpenAI 批量翻译失败: {e}，使用原文")
+                results.append(text)
+
+        return results
 
 
 class SimpleTranslator(Translator):

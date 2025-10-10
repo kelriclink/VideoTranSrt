@@ -403,6 +403,39 @@ class ConfigManager:
                     "description": "自定义模型路径"
                 }
             },
+            "translation": {
+                "mode": {
+                    "type": "string",
+                    "enum": ["block", "per_segment"],
+                    "default": "block",
+                    "description": "翻译模式：block 为按句/段合并翻译，per_segment 为逐段翻译"
+                },
+                "context_window": {
+                    "type": "integer",
+                    "default": 10,
+                    "description": "逐段模式下的上下文窗口大小"
+                },
+                "max_block_chars": {
+                    "type": "integer",
+                    "default": 600,
+                    "description": "块模式下每块最大字符数"
+                },
+                "max_gap_seconds": {
+                    "type": "number",
+                    "default": 1.0,
+                    "description": "块模式下合并分段的最大允许时间间隔"
+                },
+                "batch_enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "是否启用批量翻译（具体实现因翻译器而异）"
+                },
+                "cache_enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "是否启用翻译结果缓存以降低成本"
+                }
+            },
             "translator": {
                 "default": {
                     "type": "string",

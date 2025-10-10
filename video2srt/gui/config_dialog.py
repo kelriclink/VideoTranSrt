@@ -68,6 +68,10 @@ class ConfigDialog(QDialog):
         self.refresh_timer = QTimer()
         self.refresh_timer.timeout.connect(self.refresh_model_table)
         self.refresh_timer.start(5000)  # 每5秒刷新一次
+
+        # 活跃测试线程引用，避免线程对象在运行中被销毁
+        self._test_threads: list[QThread] = []
+        self._current_test_thread: Optional[QThread] = None
     
     def init_ui(self):
         """初始化界面"""
@@ -695,6 +699,7 @@ class ConfigDialog(QDialog):
         pending_threads.append(t2)
 
         self._test_results = results
+        # 保存线程引用，避免局部变量在运行中被GC导致 QThread: Destroyed while thread is still running
         self._test_threads = pending_threads
 
         def on_thread_finished(msg: str):
@@ -706,6 +711,7 @@ class ConfigDialog(QDialog):
 
         for th in pending_threads:
             th.finished_with_result.connect(on_thread_finished)
+            th.finished.connect(th.deleteLater)
             th.start()
     
     def reset_to_default(self):
@@ -1187,9 +1193,32 @@ class ConfigDialog(QDialog):
                 QMessageBox.warning(self, "测试失败", msg)
             self.setEnabled(True)
 
+        # 如果已有测试线程在运行，先等待其结束
+        if self._current_test_thread and self._current_test_thread.isRunning():
+            # 不强制终止，等待之前的测试完成，避免资源冲突
+            self._current_test_thread.finished.disconnect()
+            self._current_test_thread.wait()
+
         th = TestTranslatorThread(translator_type, "Hello", "zh")
+        self._current_test_thread = th
         th.finished_with_result.connect(done)
+        th.finished.connect(th.deleteLater)
+        th.finished.connect(lambda: setattr(self, '_current_test_thread', None))
         th.start()
+
+    def closeEvent(self, event):
+        """确保关闭对话框前线程安全结束"""
+        try:
+            # 等待批量测试线程结束
+            for th in getattr(self, '_test_threads', []):
+                if th and th.isRunning():
+                    th.wait(3000)  # 最多等待3秒
+            # 等待当前测试线程结束
+            if getattr(self, '_current_test_thread', None) and self._current_test_thread.isRunning():
+                self._current_test_thread.wait(3000)
+        except Exception:
+            pass
+        super().closeEvent(event)
     
     def on_translator_changed(self):
         """翻译器选择改变时的处理"""
