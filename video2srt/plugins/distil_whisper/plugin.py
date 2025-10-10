@@ -125,7 +125,6 @@ class DistilWhisperPlugin(BaseModelLoaderPlugin):
                     "https://huggingface.co/distil-whisper/distil-large-v3.5/resolve/main/generation_config.json",
                     "https://huggingface.co/distil-whisper/distil-large-v3.5/resolve/main/vocab.json",
                     "https://huggingface.co/distil-whisper/distil-large-v3.5/resolve/main/merges.txt",
-                    "https://huggingface.co/distil-whisper/distil-large-v3.5/resolve/main/normalizer.json",
                     "https://huggingface.co/distil-whisper/distil-large-v3.5/resolve/main/added_tokens.json",
                     "https://huggingface.co/distil-whisper/distil-large-v3.5/resolve/main/special_tokens_map.json"
                 ],
@@ -204,11 +203,15 @@ class DistilWhisperPlugin(BaseModelLoaderPlugin):
         folder_name = model_name.replace("/", "_")
         model_dir = self.model_path / folder_name
         
-        # 检查必要的文件是否存在
-        required_files = ["config.json", "model.safetensors", "tokenizer.json", 
-                         "tokenizer_config.json", "preprocessor_config.json",
-                         "generation_config.json", "vocab.json", "merges.txt",
-                         "normalizer.json", "added_tokens.json", "special_tokens_map.json"]
+        # 获取该模型的实际文件列表
+        downloadable_models = self.get_downloadable_models()
+        if model_name not in downloadable_models:
+            return False
+            
+        # 从下载URL中提取文件名
+        download_urls = downloadable_models[model_name]["download_urls"]
+        required_files = [url.split("/")[-1] for url in download_urls]
+        
         return all((model_dir / file).exists() for file in required_files)
     
     def download_model(self, model_name: str, progress_callback: Optional[Callable] = None) -> bool:
