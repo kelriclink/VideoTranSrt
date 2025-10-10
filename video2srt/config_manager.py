@@ -247,6 +247,22 @@ class ConfigManager:
         """设置 Whisper 模型存储路径"""
         return self.set('whisper.model_path', model_path)
     
+    def get_whisper_device(self) -> str:
+        """获取 Whisper 设备设置"""
+        return self.get('whisper.device', 'auto')
+    
+    def set_whisper_device(self, device: str) -> bool:
+        """设置 Whisper 设备"""
+        return self.set('whisper.device', device)
+    
+    def is_intel_gpu_enabled(self) -> bool:
+        """检查是否启用Intel显卡"""
+        return self.get('whisper.enable_intel_gpu', False)
+    
+    def set_intel_gpu_enabled(self, enabled: bool) -> bool:
+        """设置Intel显卡启用状态"""
+        return self.set('whisper.enable_intel_gpu', enabled)
+    
     def get_available_translators(self) -> list:
         """获取可用的翻译器列表"""
         translators = []

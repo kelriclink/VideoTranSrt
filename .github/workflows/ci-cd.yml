@@ -1,22 +1,103 @@
-name: Auto Release
+name: CI/CD Pipeline
 
 on:
   push:
+    branches: [ main, develop ]
     tags:
       - 'v*.*.*'  # 匹配版本标签，如 v1.0.0
+  pull_request:
+    branches: [ main, develop ]
   workflow_dispatch:  # 允许手动触发
     inputs:
       version:
         description: '发布版本号 (例如: v1.0.0)'
-        required: true
-        default: 'v1.0.0'
+        required: false
+        default: ''
 
 jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.8', '3.9', '3.10', '3.11']
+        exclude:
+          # 排除一些组合以减少构建时间
+          - os: macos-latest
+            python-version: '3.8'
+          - os: macos-latest
+            python-version: '3.9'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+        cache-dependency-path: 'requirements.txt'
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install system dependencies (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg
+    
+    - name: Install system dependencies (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        brew install ffmpeg
+    
+    - name: Install system dependencies (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        choco install ffmpeg -y
+        refreshenv
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-cov pytest-mock
+    
+    - name: Lint with flake8
+      run: |
+        pip install flake8
+        # 停止构建如果有Python语法错误或未定义的名称
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # 将其他问题作为警告处理
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+    
+    - name: Run tests with pytest
+      run: |
+        pytest tests/ --cov=video2srt --cov-report=xml --cov-report=html
+    
+    - name: Upload coverage to Codecov
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10'
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
   create-release:
+    needs: test
     runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && github.event.inputs.version != '')
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
       release_id: ${{ steps.create_release.outputs.id }}
+      version: ${{ steps.get_version.outputs.VERSION }}
     
     steps:
     - uses: actions/checkout@v4
@@ -26,7 +107,7 @@ jobs:
     - name: Get version
       id: get_version
       run: |
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
           echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
         else
           echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
@@ -49,19 +130,21 @@ jobs:
     
     - name: Create Release
       id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ steps.get_version.outputs.VERSION }}
-        release_name: VideoTransRT ${{ steps.get_version.outputs.VERSION }}
+        name: VideoTransRT ${{ steps.get_version.outputs.VERSION }}
         body_path: changelog.txt
         draft: false
         prerelease: false
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-windows:
-    needs: create-release
+    needs: [test, create-release]
     runs-on: windows-latest
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && github.event.inputs.version != '')
     
     steps:
     - uses: actions/checkout@v4
@@ -101,28 +184,19 @@ jobs:
         powershell Compress-Archive -Path release\* -DestinationPath VideoTransRT-Windows.zip
     
     - name: Upload Release Asset - EXE
-      uses: actions/upload-release-asset@v1
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ needs.create-release.outputs.version }}
+        files: |
+          ./release/VideoTransRT.exe
+          ./VideoTransRT-Windows.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ needs.create-release.outputs.upload_url }}
-        asset_path: ./release/VideoTransRT.exe
-        asset_name: VideoTransRT.exe
-        asset_content_type: application/octet-stream
-    
-    - name: Upload Release Asset - ZIP
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ needs.create-release.outputs.upload_url }}
-        asset_path: ./VideoTransRT-Windows.zip
-        asset_name: VideoTransRT-Windows.zip
-        asset_content_type: application/zip
 
   build-linux:
-    needs: create-release
+    needs: [test, create-release]
     runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && github.event.inputs.version != '')
     
     steps:
     - uses: actions/checkout@v4
@@ -161,29 +235,20 @@ jobs:
         # 创建tar.gz包
         tar -czf VideoTransRT-Linux.tar.gz -C release .
     
-    - name: Upload Release Asset - Binary
-      uses: actions/upload-release-asset@v1
+    - name: Upload Release Asset
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ needs.create-release.outputs.version }}
+        files: |
+          ./release/VideoTransRT
+          ./VideoTransRT-Linux.tar.gz
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ needs.create-release.outputs.upload_url }}
-        asset_path: ./release/VideoTransRT
-        asset_name: VideoTransRT-Linux
-        asset_content_type: application/octet-stream
-    
-    - name: Upload Release Asset - TAR.GZ
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ needs.create-release.outputs.upload_url }}
-        asset_path: ./VideoTransRT-Linux.tar.gz
-        asset_name: VideoTransRT-Linux.tar.gz
-        asset_content_type: application/gzip
 
   build-macos:
-    needs: create-release
+    needs: [test, create-release]
     runs-on: macos-latest
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && github.event.inputs.version != '')
     
     steps:
     - uses: actions/checkout@v4
@@ -218,25 +283,15 @@ jobs:
         cp LICENSE release/
         cp config/default_config.json release/config/
         
-        # 创建DMG包（简化版本，使用zip）
+        # 创建ZIP包
         zip -r VideoTransRT-macOS.zip release/
     
-    - name: Upload Release Asset - Binary
-      uses: actions/upload-release-asset@v1
+    - name: Upload Release Asset
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ needs.create-release.outputs.version }}
+        files: |
+          ./release/VideoTransRT
+          ./VideoTransRT-macOS.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ needs.create-release.outputs.upload_url }}
-        asset_path: ./release/VideoTransRT
-        asset_name: VideoTransRT-macOS
-        asset_content_type: application/octet-stream
-    
-    - name: Upload Release Asset - ZIP
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ needs.create-release.outputs.upload_url }}
-        asset_path: ./VideoTransRT-macOS.zip
-        asset_name: VideoTransRT-macOS.zip
-        asset_content_type: application/zip

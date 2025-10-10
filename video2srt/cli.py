@@ -24,10 +24,8 @@ def cli():
 @click.option('-o', '--output', 'output_file', 
               help='输出字幕文件路径')
 @click.option('--model', 'model_size', 
-              type=click.Choice(['tiny.en', 'base.en', 'small.en', 'medium.en',
-                               'tiny', 'base', 'small', 'medium', 'large']),
               default='base',
-              help='Whisper 模型大小 (支持英语专用模型 .en 和多语言模型)')
+              help='Whisper 模型大小 (支持英语专用模型 .en、多语言模型和OpenVINO模型)')
 @click.option('--language', 'source_language',
               help='源语言代码 (auto 表示自动检测)')
 @click.option('--translate', 'target_language',
@@ -57,6 +55,17 @@ def process(input_file, output_file, model_size, source_language,
     """
     
     try:
+        # 验证模型是否可用
+        from .plugin_download_manager import get_download_manager
+        download_manager = get_download_manager()
+        available_models = download_manager.get_all_models()
+        
+        if model_size not in available_models:
+            click.echo(f"错误: 不支持的模型: {model_size}", err=True)
+            click.echo(f"可用模型: {', '.join(available_models.keys())}", err=True)
+            click.echo("使用 'python run.py models' 查看详细模型信息", err=True)
+            sys.exit(1)
+        
         # 如果没有指定翻译器，使用配置文件中的默认值
         if translator_type is None:
             translator_type = config_manager.get_default_translator()
@@ -65,9 +74,9 @@ def process(input_file, output_file, model_size, source_language,
         processor = Video2SRT(model_size=model_size, translator_type=translator_type)
         
         # 检查输入文件格式
-        if not processor.is_supported_format(input_file):
-            click.echo(f"错误: 不支持的文件格式: {input_file}", err=True)
-            click.echo(f"支持的格式: {', '.join(processor.get_supported_formats())}", err=True)
+        if not processor.is_supported_input_format(input_file):
+            click.echo(f"错误: 不支持的输入文件格式: {input_file}", err=True)
+            click.echo(f"支持的输入格式: {', '.join(processor.get_supported_input_formats())}", err=True)
             sys.exit(1)
         
         # 批量处理
@@ -282,40 +291,35 @@ def toggle_translator(translator, enabled):
 @cli.command()
 def models():
     """显示可用的 Whisper 模型信息"""
-    from .model_manager import model_manager
+    from .plugin_download_manager import get_download_manager
     
     click.echo("可用的 Whisper 模型:")
     click.echo()
     
-    models_info = model_manager.get_model_info()
+    download_manager = get_download_manager()
+    models_info = download_manager.get_all_models()
     
-    # 英语专用模型
-    click.echo("英语专用模型 (.en):")
-    english_models = ['tiny.en', 'base.en', 'small.en', 'medium.en']
-    for model in english_models:
-        if model in models_info:
-            info = models_info[model]
-            status = "已下载" if info['downloaded'] else "未下载"
-            click.echo(f"  {model:10} | {info['size']:8} | {info['speed']:4} | {info['accuracy']:4} | {status}")
+    # 按插件分组显示模型
+    plugins = {}
+    for model_name, model_info in models_info.items():
+        plugin_name = model_info.get('plugin_name', 'unknown')
+        if plugin_name not in plugins:
+            plugins[plugin_name] = []
+        plugins[plugin_name].append((model_name, model_info))
     
-    click.echo()
+    for plugin_name, models in plugins.items():
+        click.echo(f"{plugin_name} 模型:")
+        for model_name, info in models:
+            status = "已下载" if info.get('is_downloaded', False) else "未下载"
+            size = info.get('size', 'N/A')
+            description = info.get('description', '')
+            click.echo(f"  {model_name:20} | {size:8} | {status:4} | {description}")
+        click.echo()
     
-    # 多语言模型
-    click.echo("多语言模型:")
-    multilingual_models = ['tiny', 'base', 'small', 'medium', 'large']
-    for model in multilingual_models:
-        if model in models_info:
-            info = models_info[model]
-            status = "已下载" if info['downloaded'] else "未下载"
-            model_type = "多语言"
-            click.echo(f"  {model:10} | {info['size']:8} | {info['speed']:4} | {info['accuracy']:4} | {model_type:4} | {status}")
-    
-    click.echo()
     click.echo("说明:")
-    click.echo("  - .en 模型：英语专用，准确性更高")
-    click.echo("  - 多语言模型：支持多种语言识别")
-    click.echo("  - turbo：优化版本，速度更快")
-    click.echo("  - 推荐：base 或 base.en (平衡速度和准确性)")
+    click.echo("  - 使用插件系统管理模型")
+    click.echo("  - 支持多种模型类型和优化版本")
+    click.echo("  - 推荐根据需求选择合适的模型")
 
 
 @cli.command()
@@ -325,9 +329,11 @@ def models():
               help='要下载的模型名称')
 def download_model(model_size):
     """下载指定的 Whisper 模型"""
-    from .model_manager import model_manager
+    from .plugin_download_manager import get_download_manager
     
     click.echo(f"开始下载模型: {model_size}")
+    
+    download_manager = get_download_manager()
     
     def progress_callback(model_name, progress, status):
         if progress == 100:
@@ -335,7 +341,7 @@ def download_model(model_size):
         else:
             click.echo(f"  {model_name}: {progress}% - {status}")
     
-    success = model_manager.download_model(model_size, progress_callback)
+    success = download_manager.download_model(model_size, progress_callback)
     
     if success:
         click.echo(f"模型 {model_size} 下载完成")

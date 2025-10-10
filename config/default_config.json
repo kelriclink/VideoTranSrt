@@ -41,6 +41,7 @@
         "model_size": "base",
         "language": "auto",
         "device": "auto",
+        "enable_intel_gpu": false,
         "model_path": "",
         "available_models": {
             "english": ["tiny.en", "base.en", "small.en", "medium.en"],

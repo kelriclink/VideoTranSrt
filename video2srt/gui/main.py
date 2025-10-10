@@ -215,20 +215,30 @@ class Video2SRTGUI(QMainWindow):
         self.model_combo = QComboBox()
         self.model_combo.setEditable(True)  # 允许用户编辑
         
-        # 添加所有可用的模型，按类型分组
-        english_models = ['tiny.en', 'base.en', 'small.en', 'medium.en']
-        multilingual_models = ['tiny', 'base', 'small', 'medium', 'large']
+        # 使用插件系统获取所有可用的模型
+        from ..plugin_download_manager import get_download_manager
+        download_manager = get_download_manager()
+        all_models = download_manager.get_all_models()
         
-        # 添加英语专用模型
-        for model in english_models:
-            self.model_combo.addItem(f"{model} (英语专用)")
-        
-        # 添加多语言模型
-        for model in multilingual_models:
-            self.model_combo.addItem(f"{model} (多语言)")
+        # 按类型分组添加模型
+        for model_name, model_info in all_models.items():
+            plugin_name = model_info.get('plugin_name', '')
+            
+            # 根据插件确定显示标签
+            if plugin_name == 'distil_whisper':
+                type_label = "Distil-Whisper"
+            elif plugin_name == 'intel_gpu':
+                type_label = "Intel优化"
+            elif model_name.endswith('.en'):
+                type_label = "英语专用"
+            else:
+                type_label = "多语言"
+            
+            display_text = f"{model_name} ({type_label})"
+            self.model_combo.addItem(display_text)
         
         self.model_combo.setCurrentText('base (多语言)')
-        self.model_combo.setToolTip("选择 Whisper 模型：\n• .en 模型：英语专用，准确性更高\n• 多语言模型：支持多种语言\n• turbo：优化版本，速度更快")
+        self.model_combo.setToolTip("选择 Whisper 模型：\n• .en 模型：英语专用，准确性更高\n• 多语言模型：支持多种语言\n• Intel GPU优化：专为Intel显卡优化的模型\n• Distil-Whisper：轻量化版本，速度更快")
         layout.addWidget(self.model_combo, 0, 1)
         
         # 语言选择
@@ -330,12 +340,30 @@ class Video2SRTGUI(QMainWindow):
         # 获取设置
         model_text = self.model_combo.currentText()
         # 从显示文本中提取模型名称
-        if ' (英语专用)' in model_text:
-            model_size = model_text.replace(' (英语专用)', '')
-        elif ' (多语言)' in model_text:
-            model_size = model_text.replace(' (多语言)', '')
-        else:
-            model_size = model_text  # 用户自定义输入
+        model_size = model_text
+        
+        # 定义所有可能的标签
+        labels_to_remove = [
+            ' (Distil-Whisper)',
+            ' (Intel优化)',
+            ' (英语专用)',
+            ' (多语言)',
+            ' (Distil-Whisper (Intel GPU))',
+            ' (Intel优化 (Intel GPU))',
+            ' (英语专用 (Intel GPU))',
+            ' (多语言 (Intel GPU))'
+        ]
+        
+        # 移除标签获取模型名称
+        for label in labels_to_remove:
+            if model_text.endswith(label):
+                model_size = model_text.replace(label, '')
+                break
+        
+        # 如果没有匹配的标签，尝试提取括号前的内容
+        if model_size == model_text and '(' in model_text and ')' in model_text:
+            # 提取第一个括号前的内容
+            model_size = model_text.split(' (')[0]
         
         source_language = self.language_combo.currentText().split()[0]
         if source_language == 'auto':

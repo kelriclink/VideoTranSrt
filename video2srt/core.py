@@ -238,9 +238,35 @@ class Video2SRT:
         """
         return output_format_manager.get_supported_formats()
     
+    def get_supported_input_formats(self) -> List[str]:
+        """
+        获取支持的输入文件格式列表
+        
+        Returns:
+            支持的输入格式列表
+        """
+        return [
+            '.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv',  # 视频格式
+            '.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'  # 音频格式
+        ]
+    
+    def is_supported_input_format(self, file_path: str) -> bool:
+        """
+        检查输入文件格式是否支持
+        
+        Args:
+            file_path: 文件路径
+            
+        Returns:
+            是否支持该输入格式
+        """
+        path = Path(file_path)
+        extension = path.suffix.lower()
+        return extension in self.get_supported_input_formats()
+    
     def is_supported_format(self, file_path: str) -> bool:
         """
-        检查文件格式是否支持
+        检查文件格式是否支持（输出格式）
         
         Args:
             file_path: 文件路径

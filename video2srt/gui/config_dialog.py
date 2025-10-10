@@ -16,34 +16,8 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont
 
 from ..config_manager import config_manager
-from ..model_manager import model_manager
-
-
-class ModelDownloadThread(QThread):
-    """模型下载线程"""
-    progress_updated = pyqtSignal(str, int, str)  # model_size, progress, status
-    
-    def __init__(self, model_size: str):
-        super().__init__()
-        self.model_size = model_size
-    
-    def run(self):
-        """执行下载"""
-        model_manager.download_model(self.model_size, self.progress_updated.emit)
-
-
-class CustomDownloadThread(QThread):
-    """自定义下载线程"""
-    progress_updated = pyqtSignal(str, int, str)  # model_name, progress, status
-    
-    def __init__(self, url: str, model_name: str):
-        super().__init__()
-        self.url = url
-        self.model_name = model_name
-    
-    def run(self):
-        """执行自定义下载"""
-        model_manager.download_from_url(self.url, self.model_name, self.progress_updated.emit)
+from ..plugin_download_manager import get_download_manager
+from .plugin_download_thread import PluginDownloadThread
 
 
 class TestTranslatorThread(QThread):
@@ -77,6 +51,9 @@ class ConfigDialog(QDialog):
         self.setWindowTitle("配置设置")
         self.setModal(True)
         self.resize(800, 600)
+        
+        # 初始化插件下载管理器
+        self.download_manager = get_download_manager()
         
         # 模型下载相关
         self.download_threads = {}
@@ -160,20 +137,29 @@ class ConfigDialog(QDialog):
         self.whisper_model_combo = QComboBox()
         self.whisper_model_combo.setEditable(True)
         
-        # 添加所有可用的模型，按类型分组
-        english_models = ['tiny.en', 'base.en', 'small.en', 'medium.en']
-        multilingual_models = ['tiny', 'base', 'small', 'medium', 'large']
+        # 使用插件系统获取所有可用的模型
+        all_models = self.download_manager.get_all_models()
         
-        # 添加英语专用模型
-        for model in english_models:
-            self.whisper_model_combo.addItem(f"{model} (英语专用)")
-        
-        # 添加多语言模型
-        for model in multilingual_models:
-            self.whisper_model_combo.addItem(f"{model} (多语言)")
+        # 按类型分组添加模型
+        for model_name, model_info in all_models.items():
+            model_type = model_info.get('type', 'whisper')
+            plugin_name = model_info.get('plugin_name', '')
+            
+            # 根据模型类型和插件确定显示标签
+            if plugin_name == 'distil_whisper':
+                type_label = "Distil-Whisper"
+            elif plugin_name == 'intel_gpu':
+                type_label = "Intel优化"
+            elif model_name.endswith('.en'):
+                type_label = "英语专用"
+            else:
+                type_label = "多语言"
+            
+            display_text = f"{model_name} ({type_label})"
+            self.whisper_model_combo.addItem(display_text)
         
         self.whisper_model_combo.setCurrentText('base (多语言)')
-        self.whisper_model_combo.setToolTip("选择 Whisper 模型：\n• .en 模型：英语专用，准确性更高\n• 多语言模型：支持多种语言\n• turbo：优化版本，速度更快")
+        self.whisper_model_combo.setToolTip("选择 Whisper 模型：\n• .en 模型：英语专用，准确性更高\n• 多语言模型：支持多种语言\n• Intel GPU优化：专为Intel显卡优化的模型\n• turbo：优化版本，速度更快")
         whisper_layout.addWidget(self.whisper_model_combo, 0, 1)
         
         whisper_layout.addWidget(QLabel("默认语言:"), 1, 0)
@@ -186,12 +172,18 @@ class ConfigDialog(QDialog):
         
         whisper_layout.addWidget(QLabel("设备:"), 2, 0)
         self.whisper_device_combo = QComboBox()
-        self.whisper_device_combo.addItems(['auto (自动)', 'cpu', 'cuda'])
+        self.whisper_device_combo.addItems(['auto (自动)', 'cpu', 'cuda', 'intel_gpu (Intel显卡)'])
         self.whisper_device_combo.setCurrentText('auto (自动)')
         whisper_layout.addWidget(self.whisper_device_combo, 2, 1)
         
+        # Intel GPU 启用选项
+        whisper_layout.addWidget(QLabel("启用Intel显卡:"), 3, 0)
+        self.intel_gpu_enabled_check = QCheckBox("启用Intel GPU加速")
+        self.intel_gpu_enabled_check.setToolTip("启用后将在自动模式下优先使用Intel显卡进行推理")
+        whisper_layout.addWidget(self.intel_gpu_enabled_check, 3, 1)
+        
         # 模型路径设置
-        whisper_layout.addWidget(QLabel("模型路径:"), 3, 0)
+        whisper_layout.addWidget(QLabel("模型路径:"), 4, 0)
         model_path_layout = QHBoxLayout()
         self.model_path_edit = QLineEdit()
         self.model_path_edit.setPlaceholderText("留空使用默认路径")
@@ -200,13 +192,13 @@ class ConfigDialog(QDialog):
         browse_btn = QPushButton("浏览")
         browse_btn.clicked.connect(self.browse_model_path)
         model_path_layout.addWidget(browse_btn)
-        whisper_layout.addLayout(model_path_layout, 3, 1)
+        whisper_layout.addLayout(model_path_layout, 4, 1)
         
         layout.addWidget(whisper_group)
         
         # 添加一些说明文本
         info_text = QTextEdit()
-        info_text.setMaximumHeight(100)
+        info_text.setMaximumHeight(150)
         info_text.setPlainText(
             "Whisper 模型说明:\n"
             "英语专用模型 (.en):\n"
@@ -220,7 +212,11 @@ class ConfigDialog(QDialog):
             "• small: 244MB, 中等速度, 较好准确性\n"
             "• medium: 769MB, 较慢, 高准确性\n"
             "• large: 1550MB, 最慢, 最高准确性\n"
-            "• turbo: 809MB, 快速, 优化版本"
+            "• turbo: 809MB, 快速, 优化版本\n\n"
+            "Intel GPU优化模型:\n"
+            "• distil-whisper系列: 蒸馏模型，速度更快\n"
+            "• Intel优化模型: 专为Intel GPU优化，支持INT8量化\n"
+            "• 需要Intel GPU和OpenVINO支持"
         )
         info_text.setReadOnly(True)
         layout.addWidget(info_text)
@@ -238,12 +234,21 @@ class ConfigDialog(QDialog):
         info_layout = QVBoxLayout(info_group)
         
         # 磁盘使用情况
-        disk_info = model_manager.get_disk_usage()
-        disk_label = QLabel(f"模型存储路径: {disk_info['model_path']}")
+        model_path = self.download_manager.get_model_path()
+        disk_label = QLabel(f"模型存储路径: {model_path}")
         disk_label.setWordWrap(True)
         info_layout.addWidget(disk_label)
         
-        disk_usage_label = QLabel(f"已使用空间: {disk_info['total_size_mb']} MB, 文件数量: {disk_info['file_count']}")
+        # 计算磁盘使用情况
+        total_size = 0
+        file_count = 0
+        if Path(model_path).exists():
+            for file_path in Path(model_path).rglob('*'):
+                if file_path.is_file():
+                    total_size += file_path.stat().st_size
+                    file_count += 1
+        
+        disk_usage_label = QLabel(f"已使用空间: {total_size // (1024*1024)} MB, 文件数量: {file_count}")
         info_layout.addWidget(disk_usage_label)
         
         layout.addWidget(info_group)
@@ -254,9 +259,9 @@ class ConfigDialog(QDialog):
         
         # 创建模型表格
         self.model_table = QTableWidget()
-        self.model_table.setColumnCount(7)
+        self.model_table.setColumnCount(8)
         self.model_table.setHorizontalHeaderLabels([
-            "模型名称", "大小", "速度", "准确性", "状态", "进度", "操作"
+            "模型名称", "类型", "大小", "速度", "准确性", "状态", "进度", "操作"
         ])
         
         # 设置表格属性
@@ -494,20 +499,46 @@ class ConfigDialog(QDialog):
         """加载配置到界面"""
         # Whisper 配置
         model_size = config_manager.get_whisper_model_size()
-        # 根据模型类型设置正确的显示文本
-        if model_size.endswith('.en'):
-            display_text = f"{model_size} (英语专用)"
-        elif model_size == 'turbo':
-            display_text = f"{model_size} (多语言优化)"
+        
+        # 使用插件系统获取模型信息以确定正确的显示文本
+        all_models = self.download_manager.get_all_models()
+        display_text = None
+        
+        # 查找匹配的模型并生成显示文本
+        if model_size in all_models:
+            model_info = all_models[model_size]
+            plugin_name = model_info.get('plugin_name', '')
+            
+            # 根据插件确定显示标签
+            if plugin_name == 'distil_whisper':
+                type_label = "Distil-Whisper"
+            elif plugin_name == 'intel_gpu':
+                type_label = "Intel优化"
+            elif model_size.endswith('.en'):
+                type_label = "英语专用"
+            else:
+                type_label = "多语言"
+            
+            display_text = f"{model_size} ({type_label})"
         else:
-            display_text = f"{model_size} (多语言)"
+            # 兼容旧的模型名称格式
+            if model_size.endswith('.en'):
+                display_text = f"{model_size} (英语专用)"
+            elif model_size == 'turbo':
+                display_text = f"{model_size} (多语言优化)"
+            else:
+                display_text = f"{model_size} (多语言)"
         
         # 查找匹配的项
-        for i in range(self.whisper_model_combo.count()):
-            if self.whisper_model_combo.itemText(i) == display_text:
-                self.whisper_model_combo.setCurrentIndex(i)
-                break
-        else:
+        found = False
+        if display_text:
+            for i in range(self.whisper_model_combo.count()):
+                if self.whisper_model_combo.itemText(i) == display_text:
+                    self.whisper_model_combo.setCurrentIndex(i)
+                    found = True
+                    break
+        
+        if not found:
             # 如果没有找到匹配项，设置为用户自定义输入
             self.whisper_model_combo.setCurrentText(model_size)
         whisper_lang = config_manager.get_whisper_language()
@@ -522,8 +553,14 @@ class ConfigDialog(QDialog):
         device = config_manager.get('whisper.device', 'auto')
         if device == 'auto':
             self.whisper_device_combo.setCurrentText('auto (自动)')
+        elif device == 'intel_gpu':
+            self.whisper_device_combo.setCurrentText('intel_gpu (Intel显卡)')
         else:
             self.whisper_device_combo.setCurrentText(device)
+        
+        # 加载Intel GPU启用状态
+        intel_gpu_enabled = config_manager.is_intel_gpu_enabled()
+        self.intel_gpu_enabled_check.setChecked(intel_gpu_enabled)
         
         # 加载模型路径
         model_path = config_manager.get_whisper_model_path()
@@ -576,15 +613,27 @@ class ConfigDialog(QDialog):
         try:
             # Whisper 配置
             model_text = self.whisper_model_combo.currentText()
-            # 从显示文本中提取模型名称
-            if ' (英语专用)' in model_text:
-                model_size = model_text.replace(' (英语专用)', '')
-            elif ' (多语言)' in model_text:
-                model_size = model_text.replace(' (多语言)', '')
-            elif ' (多语言优化)' in model_text:
-                model_size = model_text.replace(' (多语言优化)', '')
-            else:
-                model_size = model_text  # 用户自定义输入
+            
+            # 从显示文本中提取模型名称，支持所有类型的模型
+            model_size = model_text
+            
+            # 移除各种类型标签
+            type_labels = [
+                ' (英语专用)', ' (多语言)', ' (多语言优化)', 
+                ' (Distil-Whisper)', ' (Intel优化)', 
+                ' (Distil-Whisper (Intel GPU))', ' (Intel优化 (Intel GPU))',
+                ' (英语专用 (Intel GPU))', ' (多语言 (Intel GPU))'
+            ]
+            
+            for label in type_labels:
+                if label in model_text:
+                    model_size = model_text.replace(label, '')
+                    break
+            
+            # 如果没有匹配到任何标签，可能是用户自定义输入
+            if model_size == model_text and '(' in model_text and ')' in model_text:
+                # 尝试提取括号前的部分作为模型名称
+                model_size = model_text.split(' (')[0]
             
             config_manager.set_whisper_model_size(model_size)
             whisper_lang = self.whisper_language_combo.currentText().split()[0]
@@ -595,7 +644,13 @@ class ConfigDialog(QDialog):
             device = self.whisper_device_combo.currentText()
             if device == 'auto (自动)':
                 device = 'auto'
+            elif device == 'intel_gpu (Intel显卡)':
+                device = 'intel_gpu'
             config_manager.set('whisper.device', device)
+            
+            # 保存Intel GPU启用状态
+            intel_gpu_enabled = self.intel_gpu_enabled_check.isChecked()
+            config_manager.set_intel_gpu_enabled(intel_gpu_enabled)
             
             # 保存模型路径
             model_path = self.model_path_edit.text().strip()
@@ -744,26 +799,13 @@ class ConfigDialog(QDialog):
             self.model_path_edit.setText(path)
     
     def refresh_model_table(self):
-        """刷新模型表格"""
+        """刷新模型表格 - 使用插件化下载管理器"""
         try:
-            models = model_manager.get_model_info()
-            custom_models = model_manager.list_custom_models()
+            # 获取所有可用模型（来自插件）
+            all_models = self.download_manager.get_all_available_models()
             
-            # 合并标准模型和自定义模型
-            all_models = {}
-            for model_name, info in models.items():
-                all_models[model_name] = info
-            
-            for custom_model in custom_models:
-                all_models[custom_model['name']] = {
-                    'size': custom_model['size'],
-                    'speed': '未知',
-                    'accuracy': '未知',
-                    'description': '自定义模型',
-                    'downloaded': True,
-                    'file_size': custom_model['size'],
-                    'type': 'custom'
-                }
+            # 暂时移除自定义模型功能，完全使用插件系统
+            # TODO: 如果需要自定义模型功能，可以创建一个专门的自定义模型插件
             
             self.model_table.setRowCount(len(all_models))
             
@@ -771,20 +813,48 @@ class ConfigDialog(QDialog):
                 # 模型名称
                 self.model_table.setItem(row, 0, QTableWidgetItem(model_name))
                 
+                # 模型类型
+                model_type = info.get('type', 'whisper')
+                type_display = {
+                    'whisper': 'Whisper',
+                    'distil-whisper': 'Distil-Whisper',
+                    'intel-optimized': 'Intel优化',
+                    'custom': '自定义'
+                }.get(model_type, model_type)
+                
+                # 添加插件信息
+                plugin_name = info.get('plugin_name', '未知')
+                if plugin_name != 'custom':
+                    type_display += f' ({plugin_name})'
+                
+                self.model_table.setItem(row, 1, QTableWidgetItem(type_display))
+                
                 # 大小
-                self.model_table.setItem(row, 1, QTableWidgetItem(info['size']))
+                display_size = info.get('actual_size', info.get('size', '未知'))
+                self.model_table.setItem(row, 2, QTableWidgetItem(display_size))
                 
                 # 速度
-                self.model_table.setItem(row, 2, QTableWidgetItem(info['speed']))
+                speed = info.get('speed', '未知')
+                self.model_table.setItem(row, 3, QTableWidgetItem(speed))
                 
                 # 准确性
-                self.model_table.setItem(row, 3, QTableWidgetItem(info['accuracy']))
+                accuracy = info.get('accuracy', '未知')
+                self.model_table.setItem(row, 4, QTableWidgetItem(accuracy))
                 
                 # 状态
-                status = "已下载" if info['downloaded'] else "未下载"
-                if info['downloaded']:
-                    status += f" ({info['file_size']})"
-                self.model_table.setItem(row, 4, QTableWidgetItem(status))
+                is_downloaded = info.get('is_downloaded', False)
+                status = "已下载" if is_downloaded else "未下载"
+                if is_downloaded:
+                    actual_size = info.get('actual_size', info.get('size', ''))
+                    if actual_size:
+                        status += f" ({actual_size})"
+                
+                # 添加语言信息
+                language = info.get('language', '')
+                if language:
+                    status += f" - {language}"
+                
+                self.model_table.setItem(row, 5, QTableWidgetItem(status))
                 
                 # 进度条
                 progress_widget = QWidget()
@@ -800,7 +870,7 @@ class ConfigDialog(QDialog):
                 status_label.setStyleSheet("color: blue; font-size: 10px;")
                 progress_layout.addWidget(status_label)
                 
-                self.model_table.setCellWidget(row, 5, progress_widget)
+                self.model_table.setCellWidget(row, 6, progress_widget)
                 
                 # 存储进度条和状态标签的引用
                 self.model_progress_bars[model_name] = progress_bar
@@ -811,7 +881,7 @@ class ConfigDialog(QDialog):
                 button_layout = QHBoxLayout(button_widget)
                 button_layout.setContentsMargins(2, 2, 2, 2)
                 
-                if info['downloaded']:
+                if is_downloaded:
                     delete_btn = QPushButton("删除")
                     delete_btn.clicked.connect(lambda checked, name=model_name: self.delete_model(name))
                     button_layout.addWidget(delete_btn)
@@ -820,33 +890,66 @@ class ConfigDialog(QDialog):
                     download_btn.clicked.connect(lambda checked, name=model_name: self.download_model(name))
                     button_layout.addWidget(download_btn)
                 
-                self.model_table.setCellWidget(row, 6, button_widget)
+                self.model_table.setCellWidget(row, 7, button_widget)
                 
         except Exception as e:
             print(f"刷新模型表格失败: {e}")
+            import traceback
+            traceback.print_exc()
     
-    def download_model(self, model_size: str):
-        """下载模型"""
-        if model_size in self.download_threads:
-            QMessageBox.warning(self, "警告", f"模型 {model_size} 正在下载中")
+    def download_model(self, model_name: str):
+        """下载模型 - 使用插件化下载管理器"""
+        if model_name in self.download_threads:
+            QMessageBox.warning(self, "警告", f"模型 {model_name} 正在下载中")
             return
         
-        # 创建下载线程
-        thread = ModelDownloadThread(model_size)
-        thread.progress_updated.connect(self.on_download_progress)
-        thread.finished.connect(lambda: self.on_download_finished(model_size))
+        # 检查模型是否存在于插件系统中
+        model_info = self.download_manager.get_model_info(model_name)
+        if not model_info:
+            QMessageBox.warning(self, "错误", f"未找到模型: {model_name}")
+            return
         
-        self.download_threads[model_size] = thread
+        # 创建插件化下载线程
+        thread = PluginDownloadThread(model_name)
+        thread.progress_updated.connect(self.on_download_progress)
+        thread.finished_with_result.connect(self.on_plugin_download_finished)
+        
+        self.download_threads[model_name] = thread
         thread.start()
         
         # 显示开始下载的状态
-        if model_size in self.model_progress_bars:
-            progress_bar = self.model_progress_bars[model_size]
-            status_label = self.download_status_labels[model_size]
+        if model_name in self.model_progress_bars:
+            progress_bar = self.model_progress_bars[model_name]
+            status_label = self.download_status_labels[model_name]
             progress_bar.setVisible(True)
             progress_bar.setValue(0)
             status_label.setVisible(True)
             status_label.setText("开始下载...")
+    
+    def on_plugin_download_finished(self, model_name: str, success: bool):
+        """插件下载完成处理"""
+        # 清理下载线程
+        if model_name in self.download_threads:
+            thread = self.download_threads[model_name]
+            thread.quit()
+            thread.wait()
+            del self.download_threads[model_name]
+        
+        # 隐藏进度条
+        if model_name in self.model_progress_bars:
+            progress_bar = self.model_progress_bars[model_name]
+            status_label = self.download_status_labels[model_name]
+            progress_bar.setVisible(False)
+            status_label.setVisible(False)
+        
+        # 显示结果消息
+        if success:
+            QMessageBox.information(self, "成功", f"模型 {model_name} 下载完成")
+        else:
+            QMessageBox.warning(self, "失败", f"模型 {model_name} 下载失败")
+        
+        # 刷新模型表格
+        self.refresh_model_table()
     
     def on_download_progress(self, model_size: str, progress: int, status: str):
         """下载进度更新"""
@@ -883,24 +986,28 @@ class ConfigDialog(QDialog):
         QMessageBox.information(self, "下载完成", f"模型 {model_size} 下载完成")
         self.refresh_model_table()
     
-    def delete_model(self, model_size: str):
-        """删除模型"""
+    def delete_model(self, model_name: str):
+        """删除模型 - 使用插件化下载管理器"""
         reply = QMessageBox.question(
             self, 
             "确认删除", 
-            f"确定要删除模型 {model_size} 吗？",
+            f"确定要删除模型 {model_name} 吗？",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            if model_manager.delete_model(model_size):
-                QMessageBox.information(self, "成功", f"模型 {model_size} 已删除")
-                self.refresh_model_table()
-            else:
-                QMessageBox.warning(self, "失败", f"删除模型 {model_size} 失败")
+            try:
+                success = self.download_manager.delete_model(model_name)
+                if success:
+                    QMessageBox.information(self, "成功", f"模型 {model_name} 已删除")
+                    self.refresh_model_table()
+                else:
+                    QMessageBox.warning(self, "失败", f"删除模型 {model_name} 失败")
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"删除模型时发生错误: {str(e)}")
     
     def cleanup_all_models(self):
-        """清理所有模型"""
+        """清理所有模型 - 使用插件化下载管理器"""
         reply = QMessageBox.question(
             self, 
             "确认清理", 
@@ -909,9 +1016,20 @@ class ConfigDialog(QDialog):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            deleted_count = model_manager.cleanup_models()
-            QMessageBox.information(self, "清理完成", f"已删除 {deleted_count} 个模型文件")
-            self.refresh_model_table()
+            try:
+                # 获取所有已下载的模型
+                all_models = self.download_manager.get_all_models()
+                deleted_count = 0
+                
+                for model_name, model_info in all_models.items():
+                    if model_info.get('downloaded', False):
+                        if self.download_manager.delete_model(model_name):
+                            deleted_count += 1
+                
+                QMessageBox.information(self, "清理完成", f"已删除 {deleted_count} 个模型文件")
+                self.refresh_model_table()
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"清理模型时发生错误: {str(e)}")
     
     def upload_model(self):
         """上传模型文件"""
@@ -933,11 +1051,9 @@ class ConfigDialog(QDialog):
             )
             
             if ok and model_name:
-                if model_manager.upload_model(file_path, model_name):
-                    QMessageBox.information(self, "成功", f"模型 {model_name} 上传成功")
-                    self.refresh_model_table()
-                else:
-                    QMessageBox.warning(self, "失败", "模型上传失败")
+                # 暂时移除上传模型功能，完全使用插件系统
+                QMessageBox.information(self, "提示", "上传模型功能已移除，请使用插件系统管理模型")
+                # TODO: 如果需要自定义模型功能，可以创建一个专门的自定义模型插件
     
     def custom_download(self):
         """自定义下载模型"""
@@ -1049,7 +1165,7 @@ class ConfigDialog(QDialog):
 - large: 1550MB (最准确)
 
 模型存储路径: {model_path}
-        """.format(model_path=model_manager.model_path)
+        """.format(model_path=self.download_manager.get_model_path())
         
         QMessageBox.information(self, "手动下载帮助", help_text)
     
@@ -1058,30 +1174,28 @@ class ConfigDialog(QDialog):
         try:
             QMessageBox.information(self, "刷新中", "正在刷新模型下载地址...")
             
-            # 刷新URL缓存
-            model_manager.refresh_download_urls()
+            # 使用插件系统获取所有可用模型信息
+            all_models = self.download_manager.get_all_models()
             
-            # 获取所有模型的URL信息
-            urls = model_manager.get_dynamic_download_urls()
+            # 显示模型信息
+            model_info = "当前可用的模型:\n\n"
             
-            # 显示URL信息
-            url_info = "当前可用的下载地址:\n\n"
-            
-            for model_size, url_list in urls.items():
-                url_info += f"{model_size} 模型:\n"
+            for model_name, info in all_models.items():
+                plugin_name = info.get('plugin_name', 'unknown')
+                model_type = info.get('type', 'unknown')
+                size = info.get('size', 'unknown')
+                is_downloaded = info.get('is_downloaded', False)
+                status = "已下载" if is_downloaded else "未下载"
                 
-                # 测试每个URL的可用性
-                for i, url in enumerate(url_list):
-                    is_available = model_manager.test_url_availability(url)
-                    status = "可用" if is_available else "不可用"
-                    url_info += f"  {i+1}. [{status}] {url}\n"
-                
-                url_info += "\n"
+                model_info += f"{model_name} ({plugin_name}):\n"
+                model_info += f"  类型: {model_type}\n"
+                model_info += f"  大小: {size}\n"
+                model_info += f"  状态: {status}\n\n"
             
-            QMessageBox.information(self, "下载地址信息", url_info)
+            QMessageBox.information(self, "模型信息", model_info)
             
         except Exception as e:
-            QMessageBox.warning(self, "刷新失败", f"刷新下载地址失败: {e}")
+            QMessageBox.warning(self, "刷新失败", f"获取模型信息失败: {e}")
     
     def test_current_translator(self):
         """测试当前选择的翻译器"""
