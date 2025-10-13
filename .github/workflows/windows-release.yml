@@ -1,4 +1,4 @@
-name: Build Windows EXE and Release
+name: Build Windows EXE (no release)
 
 on:
   push:
@@ -28,7 +28,7 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller pyinstaller-hooks-contrib
 
-      - name: Build EXE (PyInstaller one-folder)
+      - name: Build EXE (PyInstaller one-folder, include plugins)
         shell: pwsh
         run: |
           # 生成可执行文件（文件夹形式，包含所有依赖）
@@ -36,8 +36,31 @@ jobs:
           pyinstaller --noconfirm --clean `
             --name Video2SRT `
             --icon video2srt/gui/icon.ico `
+            --onedir `
             --add-data "config/default_config.json;config" `
+            --add-data "video2srt/plugins;video2srt/plugins" `
+            --collect-submodules video2srt `
+            --collect-submodules video2srt.plugins `
+            --collect-submodules whisper `
+            --collect-submodules torch `
+            --collect-submodules PyQt6 `
             run.py
+
+      - name: Download FFmpeg and copy to dist
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ffmpegUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+          $zipPath = "ffmpeg.zip"
+          Write-Host "Downloading FFmpeg from $ffmpegUrl"
+          Invoke-WebRequest -Uri $ffmpegUrl -OutFile $zipPath
+          Expand-Archive -Path $zipPath -DestinationPath "ffmpeg" -Force
+          $ffmpegExe = Get-ChildItem -Recurse -File ffmpeg | Where-Object { $_.Name -eq "ffmpeg.exe" } | Select-Object -First 1
+          $ffprobeExe = Get-ChildItem -Recurse -File ffmpeg | Where-Object { $_.Name -eq "ffprobe.exe" } | Select-Object -First 1
+          if (-not $ffmpegExe) { throw "ffmpeg.exe not found in extracted archive" }
+          New-Item -ItemType Directory -Force -Path "dist\Video2SRT" | Out-Null
+          Copy-Item $ffmpegExe.FullName -Destination "dist\Video2SRT\"
+          if ($ffprobeExe) { Copy-Item $ffprobeExe.FullName -Destination "dist\Video2SRT\" }
 
       - name: List build outputs
         shell: pwsh
@@ -56,25 +79,3 @@ jobs:
           path: |
             dist/Video2SRT/Video2SRT.exe
             dist/Video2SRT.zip
-
-  release:
-    needs: build-windows
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: Video2SRT-windows
-          path: artifacts
-
-      - name: Create GitHub Release and Upload Assets
-        uses: softprops/action-gh-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          files: |
-            artifacts/Video2SRT.exe
-            artifacts/Video2SRT.zip
-          generate_release_notes: true
-          prerelease: false
