@@ -44,7 +44,9 @@ jobs:
             --collect-submodules whisper `
             --collect-submodules torch `
             --collect-submodules PyQt6 `
+            --collect-submodules yaml `
             --hidden-import yaml `
+            --hidden-import yaml._yaml `
             run.py
 
       - name: Download FFmpeg and copy to dist
@@ -68,10 +70,7 @@ jobs:
         run: |
           Get-ChildItem -Recurse dist\Video2SRT | Format-List
 
-      - name: Create ZIP package
-        shell: pwsh
-        run: |
-          Compress-Archive -Path dist\Video2SRT\* -DestinationPath dist\Video2SRT.zip
+      # 移除手动压缩步骤，避免双层压缩；Artifacts 自带单层压缩
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
