@@ -44,6 +44,7 @@ jobs:
             --collect-submodules whisper `
             --collect-submodules torch `
             --collect-submodules PyQt6 `
+            --hidden-import yaml `
             run.py
 
       - name: Download FFmpeg and copy to dist
@@ -77,5 +78,4 @@ jobs:
         with:
           name: Video2SRT-windows
           path: |
-            dist/Video2SRT/Video2SRT.exe
-            dist/Video2SRT.zip
+            dist/Video2SRT/
