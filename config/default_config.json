@@ -38,10 +38,13 @@
         }
     },
     "translation": {
-        "mode": "block", 
+        "mode": "per_segment", 
+        "context_enabled": true,
         "context_window": 10,
         "max_block_chars": 600,
         "max_gap_seconds": 1.0,
+        "structured_prompt": true,
+        "use_ai_timestamps": true,
         "batch_enabled": true,
         "cache_enabled": true
     },
@@ -64,8 +67,8 @@
         }
     },
     "general": {
-        "default_translator": "google",
-        "fallback_translator": "simple",
+        "default_translator": "offline",
+        "fallback_translator": "google",
         "auto_detect_language": true,
         "save_config_on_exit": true
     }

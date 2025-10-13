@@ -430,34 +430,42 @@ class TranslatorManager:
         """
         priority_list = []
         
-        # 首选翻译器
+        # 首选翻译器（如果指定且启用）
         if preferred and preferred in self.translators:
-            priority_list.append(preferred)
+            translator_info = self.translators[preferred]
+            if translator_info.config and translator_info.config.enabled:
+                priority_list.append(preferred)
         
-        # 默认翻译器
-        default_translator = config_manager.get_default_translator()
-        if default_translator and default_translator not in priority_list:
-            priority_list.append(default_translator)
+        # 如果没有首选翻译器或首选翻译器未启用，使用默认翻译器
+        if not priority_list:
+            default_translator = config_manager.get_default_translator()
+            if (default_translator and 
+                default_translator in self.translators and
+                self.translators[default_translator].config and
+                self.translators[default_translator].config.enabled):
+                priority_list.append(default_translator)
         
-        # 备用翻译器
-        fallback_translator = config_manager.get_fallback_translator()
-        if fallback_translator and fallback_translator not in priority_list:
-            priority_list.append(fallback_translator)
+        # 如果默认翻译器也不可用，使用备用翻译器
+        if not priority_list:
+            fallback_translator = config_manager.get_fallback_translator()
+            if (fallback_translator and 
+                fallback_translator in self.translators and
+                self.translators[fallback_translator].config and
+                self.translators[fallback_translator].config.enabled):
+                priority_list.append(fallback_translator)
         
-        # 其他可用翻译器（按配置优先级和成功率排序）
-        other_translators = [
-            name for name in self.translators.keys()
-            if name not in priority_list
-        ]
-        other_translators.sort(
-            key=lambda x: (
-                self.translators[x].config.priority,
-                -self.translators[x].success_rate
-            )
-        )
-        priority_list.extend(other_translators)
+        # 只返回启用的翻译器，不再添加其他翻译器
+        # 过滤掉未启用的翻译器
+        enabled_priority_list = []
+        for translator_name in priority_list:
+            translator_info = self.translators.get(translator_name)
+            if (translator_info and 
+                translator_info.config and 
+                translator_info.config.enabled and
+                translator_info.status != TranslatorStatus.CONFIG_ERROR):
+                enabled_priority_list.append(translator_name)
         
-        return priority_list
+        return enabled_priority_list
     
     def _calculate_retry_delay(self, attempt: int) -> float:
         """

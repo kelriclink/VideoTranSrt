@@ -9,7 +9,7 @@ from typing import Optional
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QWidget, 
                             QPushButton, QLabel, QLineEdit, QComboBox,
                             QCheckBox, QTabWidget, QGroupBox, QGridLayout,
-                            QTextEdit, QMessageBox, QFileDialog, QSpinBox,
+                            QTextEdit, QMessageBox, QFileDialog, QSpinBox, QDoubleSpinBox,
                             QProgressBar, QTableWidget, QTableWidgetItem,
                             QHeaderView, QSplitter)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
@@ -434,8 +434,54 @@ class ConfigDialog(QDialog):
         simple_layout.addWidget(self.simple_enabled_check, 0, 0, 1, 2)
         
         layout.addWidget(simple_group)
+
+        # 翻译流程设置
+        flow_group = QGroupBox("翻译流程设置")
+        flow_layout = QGridLayout(flow_group)
+
+        # 翻译模式
+        flow_layout.addWidget(QLabel("翻译模式:"), 0, 0)
+        self.translation_mode_combo = QComboBox()
+        self.translation_mode_combo.addItems(["block", "per_segment"])
+        self.translation_mode_combo.setToolTip("block: 合并按块翻译；per_segment: 逐段翻译")
+        flow_layout.addWidget(self.translation_mode_combo, 0, 1)
+
+        # 结构化提示（时间轴 JSON）
+        self.structured_prompt_check = QCheckBox("使用结构化提示（含时间轴 JSON）")
+        self.structured_prompt_check.setToolTip("OpenAI 模型：以 JSON 形式发送 id/start/end/text，并返回映射的翻译")
+        flow_layout.addWidget(self.structured_prompt_check, 1, 0, 1, 2)
+
+        # 直接采用 AI 返回的时间戳
+        self.use_ai_timestamps_check = QCheckBox("直接使用 AI 返回的时间戳")
+        self.use_ai_timestamps_check.setToolTip("结构化块翻译时，优先采用模型返回的 start/end")
+        flow_layout.addWidget(self.use_ai_timestamps_check, 2, 0, 1, 2)
+
+        # 上下文启用与窗口
+        self.context_enabled_check = QCheckBox("逐段模式启用上下文")
+        self.context_enabled_check.setToolTip("逐段翻译时，提供有限上下文窗口以提升一致性")
+        flow_layout.addWidget(self.context_enabled_check, 3, 0, 1, 2)
+
+        flow_layout.addWidget(QLabel("上下文窗口(0-5):"), 4, 0)
+        self.context_window_spin = QSpinBox()
+        self.context_window_spin.setRange(0, 5)
+        self.context_window_spin.setToolTip("逐段模式上下文窗口大小，建议 0-5")
+        flow_layout.addWidget(self.context_window_spin, 4, 1)
+
+        # 块模式参数
+        flow_layout.addWidget(QLabel("每块最大字符数:"), 5, 0)
+        self.max_block_chars_spin = QSpinBox()
+        self.max_block_chars_spin.setRange(100, 10000)
+        flow_layout.addWidget(self.max_block_chars_spin, 5, 1)
+
+        flow_layout.addWidget(QLabel("块合并最大间隔(秒):"), 6, 0)
+        self.max_gap_seconds_spin = QDoubleSpinBox()
+        self.max_gap_seconds_spin.setRange(0.0, 10.0)
+        self.max_gap_seconds_spin.setDecimals(2)
+        flow_layout.addWidget(self.max_gap_seconds_spin, 6, 1)
+
+        layout.addWidget(flow_group)
         layout.addStretch()
-        
+
         return widget
     
     def create_general_tab(self):
@@ -579,7 +625,20 @@ class ConfigDialog(QDialog):
         
         # 简单翻译配置
         self.simple_enabled_check.setChecked(config_manager.is_translator_enabled('simple'))
-        
+
+        # 翻译流程设置加载
+        self.translation_mode_combo.setCurrentText(config_manager.get('translation.mode', 'block'))
+        self.structured_prompt_check.setChecked(config_manager.get('translation.structured_prompt', True))
+        self.use_ai_timestamps_check.setChecked(config_manager.get('translation.use_ai_timestamps', True))
+        self.context_enabled_check.setChecked(config_manager.get('translation.context_enabled', True))
+        self.context_window_spin.setValue(config_manager.get('translation.context_window', 5))
+        self.max_block_chars_spin.setValue(config_manager.get('translation.max_block_chars', 600))
+        # 兼容浮点配置
+        try:
+            self.max_gap_seconds_spin.setValue(float(config_manager.get('translation.max_gap_seconds', 1.0)))
+        except Exception:
+            self.max_gap_seconds_spin.setValue(1.0)
+
         # 通用设置
         self.default_translator_combo.setCurrentText(config_manager.get_default_translator())
         self.fallback_translator_combo.setCurrentText(config_manager.get_fallback_translator())
@@ -661,7 +720,16 @@ class ConfigDialog(QDialog):
             
             # 简单翻译配置
             config_manager.set_translator_enabled('simple', self.simple_enabled_check.isChecked())
-            
+
+            # 翻译流程设置保存
+            config_manager.set('translation.mode', self.translation_mode_combo.currentText())
+            config_manager.set('translation.structured_prompt', self.structured_prompt_check.isChecked())
+            config_manager.set('translation.use_ai_timestamps', self.use_ai_timestamps_check.isChecked())
+            config_manager.set('translation.context_enabled', self.context_enabled_check.isChecked())
+            config_manager.set('translation.context_window', self.context_window_spin.value())
+            config_manager.set('translation.max_block_chars', self.max_block_chars_spin.value())
+            config_manager.set('translation.max_gap_seconds', float(self.max_gap_seconds_spin.value()))
+
             # 通用设置
             config_manager.set_default_translator(self.default_translator_combo.currentText())
             config_manager.set_fallback_translator(self.fallback_translator_combo.currentText())
