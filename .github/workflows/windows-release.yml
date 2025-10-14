@@ -92,7 +92,8 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: Video2SRT-windows
-          path: artifact
+          # v4 不会自动创建以工件名为子目录的结构；显式指定子目录，后续压缩路径才能命中
+          path: artifact/Video2SRT-windows
 
       - name: List artifact directory
         shell: pwsh
