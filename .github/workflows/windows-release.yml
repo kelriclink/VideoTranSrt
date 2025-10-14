@@ -103,10 +103,26 @@ jobs:
       - name: Zip folder for release (single compression)
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           $version = "${{ github.ref_name }}"
           $dest = "artifact/Video2SRT-$version-windows.zip"
           if (Test-Path $dest) { Remove-Item $dest -Force }
-          Compress-Archive -Path artifact/* -DestinationPath $dest
+
+          # 自动探测工件根目录
+          $root = Get-ChildItem -Path "artifact" -Directory | Select-Object -First 1
+          if (-not $root) { throw "No artifact directories found under 'artifact'" }
+
+          # 如果存在内层应用目录 Video2SRT，则优先压缩该目录（获得更干净的包结构）
+          $inner = Join-Path $root.FullName "Video2SRT"
+          if (Test-Path $inner) {
+            Write-Host "Zipping inner app folder: $inner"
+            Compress-Archive -Path $inner -DestinationPath $dest
+          }
+          else {
+            Write-Host "Zipping artifact folder: $($root.FullName)"
+            Compress-Archive -Path $root.FullName -DestinationPath $dest
+          }
+
           Write-Host "Created $dest"
 
       - name: Publish GitHub Release
