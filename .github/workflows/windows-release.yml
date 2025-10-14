@@ -32,11 +32,12 @@ jobs:
         shell: pwsh
         run: |
           # 生成可执行文件（文件夹形式，包含所有依赖）
-          # 入口脚本为 run.py；图标位于 video2srt/gui/icon.ico
+          # 入口脚本切换为 GUI：video2srt/gui/main.py；图标位于 video2srt/gui/icon.ico
           pyinstaller --noconfirm --clean `
             --name Video2SRT `
             --icon video2srt/gui/icon.ico `
             --onedir `
+            --windowed `
             --add-data "config/default_config.json;config" `
             --add-data "video2srt/plugins;video2srt/plugins" `
             --collect-submodules video2srt `
@@ -47,7 +48,7 @@ jobs:
             --collect-submodules yaml `
             --hidden-import yaml `
             --hidden-import yaml._yaml `
-            run.py
+            video2srt/gui/main.py
 
       - name: Download FFmpeg and copy to dist
         shell: pwsh
