@@ -71,14 +71,24 @@ jobs:
         run: |
           Get-ChildItem -Recurse dist\Video2SRT | Format-List
 
+      - name: Create zip for release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = "${{ github.ref_name }}"
+          $zip = "dist/Video2SRT-$version-windows.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path dist/Video2SRT/* -DestinationPath $zip
+          Write-Host "Created $zip"
+
       # 移除手动压缩步骤，避免双层压缩；Artifacts 自带单层压缩
 
-      - name: Upload build artifact
+      - name: Upload build artifact (zip)
         uses: actions/upload-artifact@v4
         with:
-          name: Video2SRT-windows
+          name: release-zip
           path: |
-            dist/Video2SRT/
+            dist/Video2SRT-${{ github.ref_name }}-windows.zip
 
   release:
     name: Create GitHub Release
@@ -88,49 +98,18 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download build artifact
+      - name: Download build artifact (zip)
         uses: actions/download-artifact@v4
         with:
-          name: Video2SRT-windows
+          name: release-zip
           path: artifact
-
-      - name: List artifact directory
-        shell: pwsh
-        run: |
-          Write-Host "Listing artifact contents:"
-          Get-ChildItem -Recurse artifact | Format-List
-
-      - name: Zip folder for release (single compression)
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $version = "${{ github.ref_name }}"
-          $dest = "artifact/Video2SRT-$version-windows.zip"
-          if (Test-Path $dest) { Remove-Item $dest -Force }
-
-          # 自动探测工件根目录
-          $root = Get-ChildItem -Path "artifact" -Directory | Select-Object -First 1
-          if (-not $root) { throw "No artifact directories found under 'artifact'" }
-
-          # 如果存在内层应用目录 Video2SRT，则优先压缩该目录（获得更干净的包结构）
-          $inner = Join-Path $root.FullName "Video2SRT"
-          if (Test-Path $inner) {
-            Write-Host "Zipping inner app folder: $inner"
-            Compress-Archive -Path $inner -DestinationPath $dest
-          }
-          else {
-            Write-Host "Zipping artifact folder: $($root.FullName)"
-            Compress-Archive -Path $root.FullName -DestinationPath $dest
-          }
-
-          Write-Host "Created $dest"
 
       - name: Publish GitHub Release
         uses: ncipollo/release-action@v1
         with:
           tag: ${{ github.ref_name }}
           name: "Video2SRT ${{ github.ref_name }}"
-          artifacts: artifact/Video2SRT-${{ github.ref_name }}-windows.zip
+          artifacts: artifact/release-zip/Video2SRT-${{ github.ref_name }}-windows.zip
           allowUpdates: true
           replacesArtifacts: true
           token: ${{ github.token }}
