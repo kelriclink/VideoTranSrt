@@ -14,8 +14,8 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtGui import QFont, QIcon, QAction
 
-from ..core import Video2SRT
-from .config_dialog import ConfigDialog
+from video2srt.core import Video2SRT
+from video2srt.gui.config_dialog import ConfigDialog
 
 
 class ProcessingThread(QThread):
@@ -49,7 +49,7 @@ class ProcessingThread(QThread):
             self.progress_updated.emit(10)
 
             # 在子线程内部创建处理器，避免跨线程共享状态
-            from ..core import Video2SRT
+            from video2srt.core import Video2SRT
             processor = Video2SRT(model_size=self.model_size)
 
             result_path = processor.process(
