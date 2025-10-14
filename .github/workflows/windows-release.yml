@@ -1,7 +1,9 @@
-name: Build Windows EXE (no release)
+name: Build Windows EXE and Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -108,10 +110,8 @@ jobs:
             const tag = 'v0.6';
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-            // Get current commit sha of default branch
-            const ref = `heads/${context.ref.replace('refs/heads/','')}`;
-            const { data: refData } = await github.rest.git.getRef({ owner, repo, ref });
-            const sha = refData.object.sha;
+            // Use the commit SHA of this workflow run
+            const sha = context.sha;
             try {
               // Try to get the tag
               const { data: tagRef } = await github.rest.git.getRef({ owner, repo, ref: `tags/${tag}` });
