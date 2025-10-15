@@ -27,8 +27,7 @@ jobs:
           version: '6.10.0'
           host: 'windows'
           target: 'desktop'
-          arch: 'win64_msvc2019_64'
-          modules: 'qtbase'
+          arch: 'win64_msvc2022_64'
           cache: true
 
       - name: Configure (CMake)
