@@ -115,16 +115,36 @@ $env:PATH += ";C:\vcpkg"
 
 ### 1. 依赖获取
 
-默认优先使用 `native/third_party` 下的本地依赖：
-- `native/third_party/nlohmann_json`：建议克隆 v3.11.2 版本
+推荐使用 Git Submodule 管理 `native/third_party` 依赖：
+- `native/third_party/nlohmann_json`（来源：nlohmann/json）
+- `native/third_party/whisper.cpp`（来源：ggerganov/whisper.cpp）
 
+初始化依赖（首次或新增 submodule 后）：
 ```powershell
+git submodule update --init --recursive
+```
+
+更新到子模块远端最新（可选）：
+```powershell
+git submodule update --remote --recursive
+```
+
+备用：若不使用 Submodule，也可手动克隆依赖到指定路径：
+```powershell
+# nlohmann_json（示例：v3.11.2）
 git clone --depth 1 -b v3.11.2 https://github.com/nlohmann/json.git native/third_party/nlohmann_json
+ 
+# whisper.cpp（默认 master/main）
+git clone https://github.com/ggerganov/whisper.cpp.git native/third_party/whisper.cpp
 ```
 
 FFmpeg（可选）：如果需要核心库启用 FFmpeg 支持，确保 `native/third_party/ffmpeg/include` 和 `native/third_party/ffmpeg/lib` 正确存在。运行时请将对应 DLL（avcodec/avformat/avutil/swresample 等）放在可执行文件同目录或 PATH 中。
 
-Whisper.cpp（可选）：如需启用，可在 `native/third_party/whisper.cpp` 下提供对应源码与构建产物（参见该子项目文档）。
+Whisper.cpp（可选）：本仓库默认通过 Git Submodule 引入；如未初始化，请运行：
+```powershell
+git submodule update --init native/third_party/whisper.cpp
+```
+具体构建选项请参阅上游项目文档。
 
 ### 2. 纯 CMake 构建与自动部署（推荐）
 
