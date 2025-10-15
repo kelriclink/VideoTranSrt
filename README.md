@@ -101,6 +101,18 @@ python -m video2srt.gui
 ## 🧩 原生（C++/Qt）构建
 
 项目包含与 Python 并行的原生子项目（CLI 与 Qt GUI）。在 Windows 上现已支持“纯 CMake 一键构建并自动部署”。
+ 
+依赖管理（Git 子模块）：
+- 本仓库通过 Git Submodule 引入原生依赖：
+  - `native/third_party/nlohmann_json` → nlohmann/json
+  - `native/third_party/whisper.cpp` → ggerganov/whisper.cpp
+- 首次克隆或拉取后请初始化子模块：
+  ```powershell
+  # 推荐：递归拉取子模块
+  git clone --recurse-submodules https://github.com/kelriclink/VideoTranSrt.git
+  # 如果已克隆：在仓库根目录执行
+  git submodule update --init --recursive
+  ```
 
 快速开始（Windows，纯 CMake 自动部署）：
 
@@ -109,6 +121,17 @@ python -m video2srt.gui
 cmake -S .\native -B .\native\build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DV2S_USE_LOCAL_DEPS=ON \
   -DCMAKE_PREFIX_PATH="C:\Qt\6.10.0\mingw_64" \
+  -DV2S_WINDEPLOYQT_EXE="C:\Qt\6.10.0\mingw_64\bin\windeployqt.exe"
+
+cmake --build .\native\build --config Release
+```
+ 
+启用 Whisper（可选）：
+```powershell
+cmake -S .\native -B .\native\build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH="C:\Qt\6.10.0\mingw_64" \
+  -DV2S_USE_LOCAL_DEPS=ON \
+  -DV2S_ENABLE_WHISPER=ON \
   -DV2S_WINDEPLOYQT_EXE="C:\Qt\6.10.0\mingw_64\bin\windeployqt.exe"
 
 cmake --build .\native\build --config Release
