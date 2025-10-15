@@ -28,14 +28,18 @@ TranslationResult SimpleTranslator::translate_segments(const std::vector<Segment
 
 std::unique_ptr<ITranslator> create_translator(const std::string& translator_type,
                                                const TranslatorOptions& opts) {
-    // 简单工厂：目前支持 simple 与 google
+    // 简单工厂：目前支持 simple、google（仅Windows）、openai
     if (translator_type == "google") {
+#ifdef _WIN32
         return std::make_unique<GoogleTranslator>(opts);
+#else
+        // 非 Windows 平台尚未实现 GoogleTranslator，退化为简单译者（保持兼容）
+        return std::make_unique<SimpleTranslator>();
+#endif
     }
     if (translator_type == "openai") {
         return std::make_unique<OpenAITranslator>(opts);
     }
-    // TODO: openai/offline 可后续补充
     return std::make_unique<SimpleTranslator>();
 }
 

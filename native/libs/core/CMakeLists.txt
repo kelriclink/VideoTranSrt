@@ -10,11 +10,47 @@ add_library(v2s_core STATIC
     src/translator.cpp
     src/config_manager.cpp
     src/model_manager.cpp
+    # OpenAI 翻译器在所有平台均参与编译（Windows 使用 WinHTTP，非 Windows 使用 libcurl）
+    src/openai_translator.cpp
 )
 target_include_directories(v2s_core
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+
+# 引入 nlohmann_json（header-only），用于标准 JSON 解析
+# 可通过以下变量/选项覆盖：
+# - V2S_USE_LOCAL_DEPS（顶层定义，默认 ON）
+# - V2S_THIRD_PARTY_DIR（顶层定义，用于定位 third_party 根目录）
+# - NLOHMANN_JSON_ROOT（可选，直接指定 nlohmann_json 根目录）
+
+set(NLOHMANN_JSON_ROOT "${NLOHMANN_JSON_ROOT}")
+if(NOT NLOHMANN_JSON_ROOT AND V2S_USE_LOCAL_DEPS)
+    if(DEFINED V2S_THIRD_PARTY_DIR)
+        set(NLOHMANN_JSON_ROOT "${V2S_THIRD_PARTY_DIR}/nlohmann_json")
+    else()
+        set(NLOHMANN_JSON_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/nlohmann_json")
+    endif()
+endif()
+
+set(NLOHMANN_JSON_INCLUDE_DIR "${NLOHMANN_JSON_ROOT}/include")
+
+if(NLOHMANN_JSON_ROOT AND EXISTS "${NLOHMANN_JSON_INCLUDE_DIR}/nlohmann/json.hpp")
+    # 创建一个导入的 INTERFACE 目标，供 target_link_libraries 使用
+    add_library(nlohmann_json::nlohmann_json INTERFACE IMPORTED)
+    set_target_properties(nlohmann_json::nlohmann_json PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${NLOHMANN_JSON_INCLUDE_DIR}"
+    )
+    message(STATUS "Using local nlohmann_json at ${NLOHMANN_JSON_INCLUDE_DIR}")
+else()
+    # 尝试通过包管理器查找（例如 vcpkg）
+    find_package(nlohmann_json CONFIG QUIET)
+    if(nlohmann_json_FOUND)
+        message(STATUS "Using package nlohmann_json from package manager")
+    else()
+        message(FATAL_ERROR "未找到 nlohmann_json：请在 native/third_party/nlohmann_json 放置源码或通过包管理器安装 nlohmann-json")
+    endif()
+endif()
 
 # 查找FFmpeg库
 find_package(PkgConfig QUIET)
@@ -22,14 +58,23 @@ if(PKG_CONFIG_FOUND)
     pkg_check_modules(FFMPEG QUIET libavformat libavcodec libavutil libswresample)
 endif()
 
-# 在Windows上确保链接WinHTTP（用于Google翻译实现）
+# 平台相关的网络库配置
 if(WIN32)
+    # Windows：Google 与 OpenAI 使用 WinHTTP
     target_sources(v2s_core PRIVATE 
         src/google_translator.cpp
-        src/openai_translator.cpp
     )
-    # 避免重复链接，CMake会自动去重
-    target_link_libraries(v2s_core PRIVATE winhttp)
+    target_link_libraries(v2s_core PRIVATE winhttp nlohmann_json::nlohmann_json)
+else()
+    # 非 Windows：OpenAI 使用 libcurl
+    find_package(CURL QUIET)
+    if(CURL_FOUND)
+        target_link_libraries(v2s_core PRIVATE CURL::libcurl nlohmann_json::nlohmann_json)
+        target_compile_definitions(v2s_core PRIVATE V2S_HAVE_LIBCURL=1)
+    else()
+        message(WARNING "libcurl 未找到：OpenAI 翻译器将退化为返回原文。请通过 vcpkg 安装 curl 依赖。")
+        target_link_libraries(v2s_core PRIVATE nlohmann_json::nlohmann_json)
+    endif()
 endif()
 
 # 检查FFmpeg是否可用

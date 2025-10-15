@@ -2,9 +2,53 @@
 #include "video2srt_native/model_manager.hpp"
 #include <fstream>
 #include <sstream>
-#include <regex>
+#include <nlohmann/json.hpp>
+// 获取可执行文件路径所需的系统头文件
+#if defined(_WIN32)
+#  include <windows.h>
+#elif defined(__APPLE__)
+#  include <mach-o/dyld.h>
+#else
+#  include <unistd.h>
+#endif
 
 namespace v2s {
+using nlohmann::json;
+
+std::filesystem::path ConfigManager::get_executable_dir() {
+#if defined(_WIN32)
+    wchar_t buffer[MAX_PATH];
+    DWORD len = GetModuleFileNameW(nullptr, buffer, MAX_PATH);
+    if (len == 0 || len >= MAX_PATH) {
+        // 退回到当前工作目录（极少数情况下）
+        return std::filesystem::current_path();
+    }
+    std::filesystem::path exe_path(buffer);
+    return exe_path.parent_path();
+#elif defined(__APPLE__)
+    char buffer[1024];
+    uint32_t size = sizeof(buffer);
+    if (_NSGetExecutablePath(buffer, &size) != 0) {
+        std::string dyn; dyn.resize(size);
+        _NSGetExecutablePath(dyn.data(), &size);
+        return std::filesystem::path(dyn).parent_path();
+    }
+    return std::filesystem::path(buffer).parent_path();
+#else
+    char buffer[4096];
+    ssize_t len = ::readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
+    if (len <= 0) {
+        return std::filesystem::current_path();
+    }
+    buffer[len] = '\0';
+    return std::filesystem::path(buffer).parent_path();
+#endif
+}
+
+std::filesystem::path ConfigManager::resolve_to_app_dir(const std::filesystem::path& p) {
+    if (p.is_absolute()) return p;
+    return get_executable_dir() / p;
+}
 
 std::string ConfigManager::read_file(const std::filesystem::path& path) {
     std::ifstream f(path, std::ios::in);
@@ -14,148 +58,108 @@ std::string ConfigManager::read_file(const std::filesystem::path& path) {
     return ss.str();
 }
 
-// 简单的键值提取（不支持完整JSON，仅用于当前配置字段）
-static bool extract_value_by_regex(const std::string& content, const std::string& key_regex, std::string& captured) {
-    std::regex re(key_regex, std::regex::icase | std::regex::multiline);
-    std::smatch m;
-    if (std::regex_search(content, m, re) && m.size() > 1) {
-        captured = m[1].str();
+// 使用 nlohmann_json 读取并解析 JSON 文件
+static bool read_json_file(const std::filesystem::path& path, json& out) {
+    std::ifstream f(path);
+    if (!f.is_open()) return false;
+    try {
+        out = json::parse(f, /*callback*/nullptr, /*allow_exceptions*/true, /*ignore_comments*/true);
         return true;
+    } catch (...) {
+        return false;
     }
-    return false;
-}
-
-bool ConfigManager::extract_bool(const std::string& content, const std::string& key, bool& out) {
-    std::string captured;
-    // 匹配 true/false
-    std::string re = key + R"(\s*:\s*(true|false))";
-    if (!extract_value_by_regex(content, re, captured)) return false;
-    out = (captured == "true" || captured == "True" || captured == "TRUE");
-    return true;
-}
-
-bool ConfigManager::extract_int(const std::string& content, const std::string& key, int& out) {
-    std::string captured;
-    std::string re = key + R"(\s*:\s*(-?\d+))";
-    if (!extract_value_by_regex(content, re, captured)) return false;
-    try { out = std::stoi(captured); return true; } catch (...) { return false; }
-}
-
-bool ConfigManager::extract_double(const std::string& content, const std::string& key, double& out) {
-    std::string captured;
-    std::string re = key + R"(\s*:\s*(-?\d+(?:\.\d+)?))";
-    if (!extract_value_by_regex(content, re, captured)) return false;
-    try { out = std::stod(captured); return true; } catch (...) { return false; }
-}
-
-bool ConfigManager::extract_string(const std::string& content, const std::string& key, std::string& out) {
-    std::string captured;
-    std::string re = key + R"(\s*:\s*\"([^\"]*)\")";
-    if (!extract_value_by_regex(content, re, captured)) return false;
-    out = captured;
-    return true;
 }
 
 bool ConfigManager::apply_default_config(ProcessingConfig& config,
                                          const std::filesystem::path& config_path) {
-    // 读取文件
-    std::string content = read_file(config_path);
-    if (content.empty()) {
+    const auto abs_config = resolve_to_app_dir(config_path);
+    json j;
+    if (!read_json_file(abs_config, j)) {
         return false;
     }
 
     // general.default_translator
-    std::string default_translator;
-    if (extract_string(content, R"(\"default_translator\")", default_translator)) {
-        // 仅在未显式设置或为默认simple时应用
-        if (config.translator_type == "simple" || config.translator_type.empty()) {
-            config.translator_type = default_translator;
-        }
-    }
-
-    // whisper.model_size
-    std::string whisper_model_size;
-    if (extract_string(content, R"(\"model_size\")", whisper_model_size)) {
-        if (config.model_size == "base") {
-            config.model_size = whisper_model_size;
-        }
-    }
-
-    // whisper.language
-    std::string whisper_language;
-    if (extract_string(content, R"(\"language\")", whisper_language)) {
-        if (!config.language.has_value() || config.language->empty()) {
-            if (whisper_language != "auto") {
-                config.language = whisper_language;
+    if (j.contains("general") && j["general"].is_object()) {
+        const auto& g = j["general"];
+        if (g.contains("default_translator") && g["default_translator"].is_string()) {
+            std::string default_translator = g["default_translator"].get<std::string>();
+            if (config.translator_type == "simple" || config.translator_type.empty()) {
+                config.translator_type = default_translator;
             }
         }
     }
 
-    // whisper.model_dir -> ModelManager::set_model_dir
-    std::string whisper_model_dir;
-    if (extract_string(content, R"(\"model_dir\")", whisper_model_dir)) {
-        if (!whisper_model_dir.empty()) {
-            // 使用更通用的分隔符写法
-            std::filesystem::path dir(whisper_model_dir);
-            v2s::ModelManager::set_model_dir(dir);
+    // whisper.*
+    if (j.contains("whisper") && j["whisper"].is_object()) {
+        const auto& w = j["whisper"];
+        if (w.contains("model_size") && w["model_size"].is_string()) {
+            std::string model_size = w["model_size"].get<std::string>();
+            if (config.model_size == "base") {
+                config.model_size = model_size;
+            }
+        }
+        if (w.contains("language") && w["language"].is_string()) {
+            std::string language = w["language"].get<std::string>();
+            if (!config.language.has_value() || config.language->empty()) {
+                if (language != "auto") {
+                    config.language = language;
+                }
+            }
+        }
+        if (w.contains("model_dir") && w["model_dir"].is_string()) {
+            std::string model_dir = w["model_dir"].get<std::string>();
+            if (!model_dir.empty()) {
+                std::filesystem::path dir(model_dir);
+                if (!dir.is_absolute()) {
+                    dir = get_executable_dir() / dir;
+                }
+                v2s::ModelManager::set_model_dir(dir);
+            }
+        }
+        if (w.contains("device") && w["device"].is_string()) {
+            std::string device = w["device"].get<std::string>();
+            if (device == "cuda" || device == "gpu") {
+                config.use_gpu = true;
+                config.device = "cuda";
+            } else if (device == "cpu") {
+                config.use_gpu = false;
+                config.device = "cpu";
+            }
         }
     }
 
-    // whisper.device -> use_gpu
-    std::string whisper_device;
-    if (extract_string(content, R"(\"device\")", whisper_device)) {
-        if (whisper_device == "cuda" || whisper_device == "gpu") {
-            config.use_gpu = true;
-            config.device = "cuda";
-        } else if (whisper_device == "cpu") {
-            config.use_gpu = false;
-            config.device = "cpu";
+    // translators.google
+    if (j.contains("translators") && j["translators"].is_object()) {
+        const auto& t = j["translators"];
+        if (t.contains("google") && t["google"].is_object()) {
+            const auto& ggl = t["google"];
+            bool google_enabled = ggl.value("enabled", false);
+            if (config.translator_type == "google" && google_enabled) {
+                config.translator_options.timeout_seconds = ggl.value("timeout", config.translator_options.timeout_seconds);
+                config.translator_options.retry_count = ggl.value("retry_count", config.translator_options.retry_count);
+                config.translator_options.ssl_bypass = ggl.value("use_ssl_bypass", config.translator_options.ssl_bypass);
+                // 默认 base_url（注：非官方端点）
+                config.translator_options.base_url = "https://translate.googleapis.com";
+            }
         }
-    }
-
-    // translators.google.*
-    bool google_enabled = false;
-    extract_bool(content, R"(\"google\"[\s\S]*?\"enabled\")", google_enabled);
-    if (config.translator_type == "google" && google_enabled) {
-        int timeout = 0, retry = 0; bool bypass = false;
-        if (extract_int(content, R"(\"google\"[\s\S]*?\"timeout\")", timeout)) {
-            config.translator_options.timeout_seconds = timeout;
-        }
-        if (extract_int(content, R"(\"google\"[\s\S]*?\"retry_count\")", retry)) {
-            config.translator_options.retry_count = retry;
-        }
-        if (extract_bool(content, R"(\"google\"[\s\S]*?\"use_ssl_bypass\")", bypass)) {
-            config.translator_options.ssl_bypass = bypass;
-        }
-        // 默认 base_url（注：非官方端点）
-        config.translator_options.base_url = "https://translate.googleapis.com";
-    }
-
-    // translators.openai.*
-    bool openai_enabled = false;
-    extract_bool(content, R"(\"openai\"[\s\S]*?\"enabled\")", openai_enabled);
-    if (config.translator_type == "openai" && openai_enabled) {
-        std::string api_key, base_url, model; int max_tokens = 0; double temperature = 0.0; int timeout = 0; int retry = 0;
-        if (extract_string(content, R"(\"openai\"[\s\S]*?\"api_key\")", api_key)) {
-            config.translator_options.api_key = api_key;
-        }
-        if (extract_string(content, R"(\"openai\"[\s\S]*?\"base_url\")", base_url)) {
-            config.translator_options.base_url = base_url;
-        }
-        if (extract_string(content, R"(\"openai\"[\s\S]*?\"model\")", model)) {
-            config.translator_options.model = model;
-        }
-        if (extract_int(content, R"(\"openai\"[\s\S]*?\"max_tokens\")", max_tokens)) {
-            config.translator_options.max_tokens = max_tokens;
-        }
-        if (extract_double(content, R"(\"openai\"[\s\S]*?\"temperature\")", temperature)) {
-            config.translator_options.temperature = temperature;
-        }
-        if (extract_int(content, R"(\"openai\"[\s\S]*?\"timeout\")", timeout)) {
-            config.translator_options.timeout_seconds = timeout;
-        }
-        if (extract_int(content, R"(\"openai\"[\s\S]*?\"retry_count\")", retry)) {
-            config.translator_options.retry_count = retry;
+        if (t.contains("openai") && t["openai"].is_object()) {
+            const auto& oa = t["openai"];
+            bool openai_enabled = oa.value("enabled", false);
+            if (config.translator_type == "openai" && openai_enabled) {
+                if (oa.contains("api_key") && oa["api_key"].is_string()) {
+                    config.translator_options.api_key = oa["api_key"].get<std::string>();
+                }
+                if (oa.contains("base_url") && oa["base_url"].is_string()) {
+                    config.translator_options.base_url = oa["base_url"].get<std::string>();
+                }
+                if (oa.contains("model") && oa["model"].is_string()) {
+                    config.translator_options.model = oa["model"].get<std::string>();
+                }
+                config.translator_options.max_tokens = oa.value("max_tokens", config.translator_options.max_tokens);
+                config.translator_options.temperature = oa.value("temperature", config.translator_options.temperature);
+                config.translator_options.timeout_seconds = oa.value("timeout", config.translator_options.timeout_seconds);
+                config.translator_options.retry_count = oa.value("retry_count", config.translator_options.retry_count);
+            }
         }
     }
 
@@ -164,20 +168,29 @@ bool ConfigManager::apply_default_config(ProcessingConfig& config,
 
 bool ConfigManager::apply_model_dir_from_config(const std::filesystem::path& user_config_path,
                                                 const std::filesystem::path& default_config_path) {
-    // 优先读取用户配置
-    std::string content = read_file(user_config_path);
-    if (content.empty()) {
-        content = read_file(default_config_path);
+    const auto abs_user = resolve_to_app_dir(user_config_path);
+    const auto abs_default = resolve_to_app_dir(default_config_path);
+    json j;
+    bool loaded = false;
+    if (read_json_file(abs_user, j)) {
+        loaded = true;
+    } else if (read_json_file(abs_default, j)) {
+        loaded = true;
     }
-    if (content.empty()) {
-        return false;
-    }
+    if (!loaded) return false;
 
-    std::string whisper_model_dir;
-    if (extract_string(content, R"(\"model_dir\")", whisper_model_dir)) {
-        if (!whisper_model_dir.empty()) {
-            v2s::ModelManager::set_model_dir(std::filesystem::path(whisper_model_dir));
-            return true;
+    if (j.contains("whisper") && j["whisper"].is_object()) {
+        const auto& w = j["whisper"];
+        if (w.contains("model_dir") && w["model_dir"].is_string()) {
+            std::string model_dir = w["model_dir"].get<std::string>();
+            if (!model_dir.empty()) {
+                std::filesystem::path dir(model_dir);
+                if (!dir.is_absolute()) {
+                    dir = get_executable_dir() / dir;
+                }
+                v2s::ModelManager::set_model_dir(dir);
+                return true;
+            }
         }
     }
     return false;
@@ -187,62 +200,100 @@ bool ConfigManager::save_model_dir_to_config(const std::filesystem::path& user_c
                                              const std::filesystem::path& default_config_path,
                                              const std::filesystem::path& dir) {
     try {
-        // 读取用户配置，若不存在则以默认配置为模板
-        std::string content = read_file(user_config_path);
-        if (content.empty()) {
-            content = read_file(default_config_path);
-        }
+        const auto abs_user = resolve_to_app_dir(user_config_path);
+        const auto abs_default = resolve_to_app_dir(default_config_path);
 
-        // 如果仍为空，则创建最小可用配置结构
-        if (content.empty()) {
-            content = std::string("{\n  \"whisper\": {\n    \"model_dir\": \"") + dir.generic_string() + "\"\n  }\n}\n";
-        } else {
-            // 先尝试替换已存在的 model_dir 字段
-            std::regex model_dir_re(R"(\"model_dir\"\s*:\s*\"[^\"]*\")", std::regex::icase);
-            if (std::regex_search(content, model_dir_re)) {
-                content = std::regex_replace(content, model_dir_re,
-                                             std::string("\"model_dir\": \"") + dir.generic_string() + "\"");
-            } else {
-                // 尝试插入到 whisper 段中（优先在 model_path 后插入）
-                std::size_t mp = content.find("\"model_path\"");
-                if (mp != std::string::npos) {
-                    // 找到下一行结束位置
-                    std::size_t insert_pos = content.find('\n', mp);
-                    if (insert_pos == std::string::npos) insert_pos = mp + 1;
-                    std::string insertion = std::string("\n        \"model_dir\": \"") + dir.generic_string() + "\",";
-                    content.insert(insert_pos, insertion);
-                } else {
-                    // 在 whisper 对象开头插入
-                    std::size_t wpos = content.find("\"whisper\"");
-                    if (wpos != std::string::npos) {
-                        std::size_t brace_pos = content.find('{', wpos);
-                        if (brace_pos != std::string::npos) {
-                            std::size_t insert_pos = brace_pos + 1;
-                            std::string insertion = std::string("\n        \"model_dir\": \"") + dir.generic_string() + "\",";
-                            content.insert(insert_pos, insertion);
-                        } else {
-                            // 未找到合适位置，直接在文件末尾追加一个 whisper 块
-                            content += std::string("\n, \"whisper\": { \"model_dir\": \"") + dir.generic_string() + "\" }\n";
-                        }
-                    } else {
-                        // 无 whisper 段，追加一个
-                        if (!content.empty() && content.back() == '}') {
-                            // 尝试在末尾前插入（简单处理，可能不严格JSON）
-                            content.insert(content.size() - 1, std::string(
-                                "\n,  \"whisper\": { \"model_dir\": \"") + dir.generic_string() + "\" }\n");
-                        } else {
-                            content += std::string("\n\"whisper\": { \"model_dir\": \"") + dir.generic_string() + "\" }\n";
-                        }
-                    }
-                }
+        json j;
+        if (!read_json_file(abs_user, j)) {
+            if (!read_json_file(abs_default, j)) {
+                // 构造最小配置
+                j = json::object();
             }
         }
 
-        // 写回到用户配置文件
-        std::filesystem::create_directories(user_config_path.parent_path());
-        std::ofstream ofs(user_config_path, std::ios::out | std::ios::trunc);
+        // 确保 whisper 对象存在
+        if (!j.contains("whisper") || !j["whisper"].is_object()) {
+            j["whisper"] = json::object();
+        }
+        j["whisper"]["model_dir"] = dir.string();
+
+        // 写回到用户配置文件（美化缩进）
+        std::filesystem::create_directories(abs_user.parent_path());
+        std::ofstream ofs(abs_user, std::ios::out | std::ios::trunc);
         if (!ofs.is_open()) return false;
-        ofs << content;
+        ofs << j.dump(2);
+        ofs.close();
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+// 以上基于正则/字符串的伪 JSON 操作全部移除，统一改用 nlohmann_json 进行可靠解析与写入
+
+bool ConfigManager::save_user_config(const std::filesystem::path& user_config_path,
+                                     const std::filesystem::path& default_config_path,
+                                     const ProcessingConfig& cfg) {
+    try {
+        const auto abs_user = resolve_to_app_dir(user_config_path);
+        const auto abs_default = resolve_to_app_dir(default_config_path);
+
+        json j;
+        if (!read_json_file(abs_user, j)) {
+            if (!read_json_file(abs_default, j)) {
+                // 构建一个带基本结构的骨架
+                j = json{
+                    {"general", json{{"default_translator", "simple"}}},
+                    {"whisper", json{{"model_size", "base"}, {"language", "auto"}, {"device", "auto"}}},
+                    {"translators", json{
+                        {"google", json{{"enabled", false}, {"timeout", 15}, {"retry_count", 3}, {"use_ssl_bypass", false}}},
+                        {"openai", json{{"enabled", false}, {"api_key", ""}, {"base_url", "https://api.openai.com/v1"}, {"model", "gpt-3.5-turbo"}, {"max_tokens", 4000}, {"temperature", 0.3}, {"timeout", 15}, {"retry_count", 3}}}
+                    }}
+                };
+            }
+        }
+
+        // 确保必要的对象存在
+        if (!j.contains("general") || !j["general"].is_object()) j["general"] = json::object();
+        if (!j.contains("whisper") || !j["whisper"].is_object()) j["whisper"] = json::object();
+        if (!j.contains("translators") || !j["translators"].is_object()) j["translators"] = json::object();
+        if (!j["translators"].contains("google") || !j["translators"]["google"].is_object()) j["translators"]["google"] = json::object();
+        if (!j["translators"].contains("openai") || !j["translators"]["openai"].is_object()) j["translators"]["openai"] = json::object();
+
+        // general.default_translator
+        std::string default_translator = cfg.translator_type.empty() ? std::string("simple") : cfg.translator_type;
+        j["general"]["default_translator"] = default_translator;
+
+        // whisper.*
+        std::string lang = cfg.language.has_value() ? cfg.language.value() : std::string("auto");
+        std::string device = (!cfg.device.empty()) ? cfg.device : (cfg.use_gpu ? std::string("gpu") : std::string("cpu"));
+        j["whisper"]["model_size"] = cfg.model_size;
+        j["whisper"]["language"] = lang;
+        j["whisper"]["device"] = device;
+
+        // translators.google
+        bool google_enabled = (cfg.translator_type == "google");
+        j["translators"]["google"]["enabled"] = google_enabled;
+        j["translators"]["google"]["timeout"] = cfg.translator_options.timeout_seconds;
+        j["translators"]["google"]["retry_count"] = cfg.translator_options.retry_count;
+        j["translators"]["google"]["use_ssl_bypass"] = cfg.translator_options.ssl_bypass;
+
+        // translators.openai
+        bool openai_enabled = (cfg.translator_type == "openai");
+        j["translators"]["openai"]["enabled"] = openai_enabled;
+        j["translators"]["openai"]["api_key"] = cfg.translator_options.api_key;
+        j["translators"]["openai"]["base_url"] = cfg.translator_options.base_url.empty() ? std::string("https://api.openai.com/v1") : cfg.translator_options.base_url;
+        j["translators"]["openai"]["model"] = cfg.translator_options.model.empty() ? std::string("gpt-3.5-turbo") : cfg.translator_options.model;
+        j["translators"]["openai"]["max_tokens"] = (cfg.translator_options.max_tokens > 0 ? cfg.translator_options.max_tokens : 4000);
+        j["translators"]["openai"]["temperature"] = cfg.translator_options.temperature;
+        j["translators"]["openai"]["timeout"] = cfg.translator_options.timeout_seconds;
+        j["translators"]["openai"]["retry_count"] = cfg.translator_options.retry_count;
+
+        // 写回（美化缩进）
+        std::filesystem::create_directories(abs_user.parent_path());
+        std::ofstream ofs(abs_user, std::ios::out | std::ios::trunc);
+        if (!ofs.is_open()) return false;
+        ofs << j.dump(2);
         ofs.close();
         return true;
     } catch (...) {

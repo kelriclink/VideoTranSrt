@@ -40,6 +40,8 @@ private slots:
 private:
     void setupUi();
     void loadLanguages();
+    // 从配置文件加载到 UI，优先读取用户配置 config/config.json，失败则回退到 default_config.json
+    void loadConfigToUi();
     void setControlsEnabled(bool enabled);
     QString generateOutputPath(const QString &inputPath, bool audioOnly, const QString &fmt) const;
 
@@ -66,6 +68,7 @@ private:
     QComboBox *m_translatorCombo;
     QLabel *m_translatorStatusLabel;
     QPushButton *m_testTranslatorBtn;
+    QPushButton *m_saveConfigBtn;
     // 通用选项
     QSpinBox *m_translatorTimeoutSpin;
     QSpinBox *m_translatorRetrySpin;
@@ -91,4 +94,5 @@ private slots:
     void onManageModels();
     void onTranslatorChanged(int);
     void onTestTranslator();
+    void onSaveConfig();
 };

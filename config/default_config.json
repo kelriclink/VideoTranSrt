@@ -49,9 +49,11 @@
         "cache_enabled": true
     },
     "whisper": {
+        "model_dir": "models",
         "model_size": "base",
         "language": "auto",
         "device": "auto",
+        "cpu_precision": "auto",
         "enable_intel_gpu": false,
         "model_path": "",
         "available_models": {

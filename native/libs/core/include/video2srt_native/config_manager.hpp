@@ -42,12 +42,28 @@ public:
                                          const std::filesystem::path& default_config_path,
                                          const std::filesystem::path& dir);
 
+    /**
+     * 将当前设置保存到用户配置（config/config.json），用于 GUI 持久化。
+     * 仅保存在默认配置中已存在或核心能识别的字段：
+     * - general.default_translator
+     * - whisper.model_size / whisper.language / whisper.device
+     * - translators.google: enabled/timeout/retry_count/use_ssl_bypass
+     * - translators.openai: enabled/api_key/base_url/model/max_tokens/temperature/timeout/retry_count
+     * @param user_config_path 用户配置文件路径（默认：config/config.json）
+     * @param default_config_path 默认配置文件路径（默认：config/default_config.json）
+     * @param config 当前处理配置（从 GUI 采集）
+     * @return 是否保存成功
+     */
+    static bool save_user_config(const std::filesystem::path& user_config_path,
+                                 const std::filesystem::path& default_config_path,
+                                 const ProcessingConfig& config);
+
 private:
+    // 返回可执行文件所在目录（跨平台）。
+    static std::filesystem::path get_executable_dir();
+    // 若传入为相对路径，则按“可执行文件目录”为基准进行解析；绝对路径保持不变。
+    static std::filesystem::path resolve_to_app_dir(const std::filesystem::path& p);
     static std::string read_file(const std::filesystem::path& path);
-    static bool extract_bool(const std::string& content, const std::string& key, bool& out);
-    static bool extract_int(const std::string& content, const std::string& key, int& out);
-    static bool extract_double(const std::string& content, const std::string& key, double& out);
-    static bool extract_string(const std::string& content, const std::string& key, std::string& out);
 };
 
 } // namespace v2s

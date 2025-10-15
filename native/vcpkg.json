@@ -5,7 +5,8 @@
   "dependencies": [
     "nlohmann-json",
     "spdlog",
-    "cxxopts"
+    "cxxopts",
+    "curl"
   ],
   "features": {
     "audio": {

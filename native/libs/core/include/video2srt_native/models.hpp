@@ -116,6 +116,11 @@ struct TranslatorOptions {
     std::string model;                   // 模型名称（OpenAI）
     int max_tokens = 4000;               // 最大tokens（OpenAI）
     double temperature = 0.3;            // 采样温度（OpenAI）
+    // 批量/聚合翻译控制（可选，默认关闭以保持现有行为）
+    bool batch_mode = false;             // 是否启用聚合翻译（一次请求翻译多个片段）
+    size_t max_batch_chars = 2000;       // 每批次最大字符数（按文本总长度控制）
+    int max_batch_segments = 8;          // 每批次最大字幕段数量
+    bool structured_json_output = true;  // 是否要求模型输出结构化 JSON（提升解析稳健性）
 };
 
 /**

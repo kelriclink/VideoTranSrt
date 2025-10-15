@@ -1,0 +1,44 @@
+[
+{
+  "directory": "D:/kelric_soft/videotransrt/native/build",
+  "command": "C:\\PROGRA~1\\mingw64\\bin\\C__~1.EXE -DV2S_HAVE_FFMPEG=1 -DV2S_HAVE_WHISPER=1 -ID:/kelric_soft/videotransrt/native/libs/core/include -ID:/kelric_soft/videotransrt/native/third_party/ffmpeg/include -ID:/kelric_soft/videotransrt/native/third_party/whisper.cpp/include -ID:/kelric_soft/videotransrt/native/third_party/whisper.cpp/ggml/include  -static-libgcc -static-libstdc++ -std=c++17 -fopenmp -o libs\\core\\CMakeFiles\\v2s_core.dir\\src\\core.cpp.obj -c D:\\kelric_soft\\videotransrt\\native\\libs\\core\\src\\core.cpp",
+  "file": "D:/kelric_soft/videotransrt/native/libs/core/src/core.cpp",
+  "output": "D:/kelric_soft/videotransrt/native/build/libs/core/CMakeFiles/v2s_core.dir/src/core.cpp.obj"
+},
+{
+  "directory": "D:/kelric_soft/videotransrt/native/build",
+  "command": "C:\\PROGRA~1\\mingw64\\bin\\C__~1.EXE -DV2S_HAVE_FFMPEG=1 -DV2S_HAVE_WHISPER=1 -ID:/kelric_soft/videotransrt/native/libs/core/include -ID:/kelric_soft/videotransrt/native/third_party/ffmpeg/include -ID:/kelric_soft/videotransrt/native/third_party/whisper.cpp/include -ID:/kelric_soft/videotransrt/native/third_party/whisper.cpp/ggml/include  -static-libgcc -static-libstdc++ -std=c++17 -fopenmp -o libs\\core\\CMakeFiles\\v2s_core.dir\\src\\audio.cpp.obj -c D:\\kelric_soft\\videotransrt\\native\\libs\\core\\src\\audio.cpp",
+  "file": "D:/kelric_soft/videotransrt/native/libs/core/src/audio.cpp",
+  "output": "D:/kelric_soft/videotransrt/native/build/libs/core/CMakeFiles/v2s_core.dir/src/audio.cpp.obj"
+},
+{
+  "directory": "D:/kelric_soft/videotransrt/native/build",
+  "command": "C:\\PROGRA~1\\mingw64\\bin\\C__~1.EXE -DV2S_HAVE_FFMPEG=1 -DV2S_HAVE_WHISPER=1 -ID:/kelric_soft/videotransrt/native/libs/core/include -ID:/kelric_soft/videotransrt/native/third_party/ffmpeg/include -ID:/kelric_soft/videotransrt/native/third_party/whisper.cpp/include -ID:/kelric_soft/videotransrt/native/third_party/whisper.cpp/ggml/include  -static-libgcc -static-libstdc++ -std=c++17 -fopenmp -o libs\\core\\CMakeFiles\\v2s_core.dir\\src\\models.cpp.obj -c D:\\kelric_soft\\videotransrt\\native\\libs\\core\\src\\models.cpp",
+  "file": "D:/kelric_soft/videotransrt/native/libs/core/src/models.cpp",
+  "output": "D:/kelric_soft/videotransrt/native/build/libs/core/CMakeFiles/v2s_core.dir/src/models.cpp.obj"
+},
+{
+  "directory": "D:/kelric_soft/videotransrt/native/build",
+  "command": "C:\\PROGRA~1\\mingw64\\bin\\C__~1.EXE -DV2S_HAVE_FFMPEG=1 -DV2S_HAVE_WHISPER=1 -ID:/kelric_soft/videotransrt/native/libs/core/include -ID:/kelric_soft/videotransrt/native/third_party/ffmpeg/include -ID:/kelric_soft/videotransrt/native/third_party/whisper.cpp/include -ID:/kelric_soft/videotransrt/native/third_party/whisper.cpp/ggml/include  -static-libgcc -static-libstdc++ -std=c++17 -fopenmp -o libs\\core\\CMakeFiles\\v2s_core.dir\\src\\formatter.cpp.obj -c D:\\kelric_soft\\videotransrt\\native\\libs\\core\\src\\formatter.cpp",
+  "file": "D:/kelric_soft/videotransrt/native/libs/core/src/formatter.cpp",
+  "output": "D:/kelric_soft/videotransrt/native/build/libs/core/CMakeFiles/v2s_core.dir/src/formatter.cpp.obj"
+},
+{
+  "directory": "D:/kelric_soft/videotransrt/native/build",
+  "command": "C:\\PROGRA~1\\mingw64\\bin\\C__~1.EXE -DV2S_HAVE_FFMPEG=1 -DV2S_HAVE_WHISPER=1 -ID:/kelric_soft/videotransrt/native/libs/core/include -ID:/kelric_soft/videotransrt/native/third_party/ffmpeg/include -ID:/kelric_soft/videotransrt/native/third_party/whisper.cpp/include -ID:/kelric_soft/videotransrt/native/third_party/whisper.cpp/ggml/include  -static-libgcc -static-libstdc++ -std=c++17 -fopenmp -o libs\\core\\CMakeFiles\\v2s_core.dir\\src\\transcriber.cpp.obj -c D:\\kelric_soft\\videotransrt\\native\\libs\\core\\src\\transcriber.cpp",
+  "file": "D:/kelric_soft/videotransrt/native/libs/core/src/transcriber.cpp",
+  "output": "D:/kelric_soft/videotransrt/native/build/libs/core/CMakeFiles/v2s_core.dir/src/transcriber.cpp.obj"
+},
+{
+  "directory": "D:/kelric_soft/videotransrt/native/build",
+  "command": "C:\\PROGRA~1\\mingw64\\bin\\C__~1.EXE -DV2S_HAVE_FFMPEG=1 -DV2S_HAVE_WHISPER=1 -ID:/kelric_soft/videotransrt/native/libs/core/include -ID:/kelric_soft/videotransrt/native/third_party/ffmpeg/include -ID:/kelric_soft/videotransrt/native/third_party/whisper.cpp/include -ID:/kelric_soft/videotransrt/native/third_party/whisper.cpp/ggml/include  -static-libgcc -static-libstdc++ -std=c++17 -fopenmp -o libs\\core\\CMakeFiles\\v2s_core.dir\\src\\processor.cpp.obj -c D:\\kelric_soft\\videotransrt\\native\\libs\\core\\src\\processor.cpp",
+  "file": "D:/kelric_soft/videotransrt/native/libs/core/src/processor.cpp",
+  "output": "D:/kelric_soft/videotransrt/native/build/libs/core/CMakeFiles/v2s_core.dir/src/processor.cpp.obj"
+},
+{
+  "directory": "D:/kelric_soft/videotransrt/native/build",
+  "command": "C:\\PROGRA~1\\mingw64\\bin\\C__~1.EXE -ID:/kelric_soft/videotransrt/native/libs/core/include  -static-libgcc -static-libstdc++ -std=c++17 -o apps\\cli\\CMakeFiles\\v2s_cli.dir\\src\\main.cpp.obj -c D:\\kelric_soft\\videotransrt\\native\\apps\\cli\\src\\main.cpp",
+  "file": "D:/kelric_soft/videotransrt/native/apps/cli/src/main.cpp",
+  "output": "D:/kelric_soft/videotransrt/native/build/apps/cli/CMakeFiles/v2s_cli.dir/src/main.cpp.obj"
+}
+]

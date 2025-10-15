@@ -73,6 +73,8 @@ MainWindow::MainWindow(QWidget *parent)
     loadLanguages();
     // 启动时应用配置中的模型目录，确保 GUI 使用统一目录
     v2s::ConfigManager::apply_model_dir_from_config(std::filesystem::path("config/config.json"), std::filesystem::path("config/default_config.json"));
+    // 读取配置到 UI（模型/语言/GPU/翻译器等）
+    loadConfigToUi();
     setWindowTitle(QString::fromUtf8("Video2SRT Qt GUI ") + QString::fromUtf8(v2s::version().c_str()));
 }
 
@@ -218,6 +220,14 @@ void MainWindow::setupUi() {
     connect(m_testTranslatorBtn, &QPushButton::clicked, this, &MainWindow::onTestTranslator);
     trow++;
 
+    // 保存配置按钮
+    m_saveConfigBtn = new QPushButton("保存配置");
+    tgrid->addWidget(m_saveConfigBtn, trow, 0, 1, 2);
+    connect(m_saveConfigBtn, &QPushButton::clicked, this, &MainWindow::onSaveConfig);
+    auto *lblSaveHint = new QLabel("保存到 config/config.json");
+    tgrid->addWidget(lblSaveHint, trow, 2, 1, 2);
+    trow++;
+
     // 初始隐藏 OpenAI 相关选项（当选择 openai 时显示）
     onTranslatorChanged(m_translatorCombo->currentIndex());
 
@@ -231,6 +241,83 @@ void MainWindow::setupUi() {
 
     central->setLayout(mainLayout);
     setCentralWidget(central);
+}
+
+void MainWindow::loadConfigToUi() {
+    // 优先读取用户配置，失败则回退到默认配置
+    v2s::ProcessingConfig cfg;
+    bool ok = v2s::ConfigManager::apply_default_config(cfg, std::filesystem::path("config/config.json"));
+    if (!ok) {
+        v2s::ConfigManager::apply_default_config(cfg, std::filesystem::path("config/default_config.json"));
+    }
+
+    // 模型
+    if (!cfg.model_size.empty()) {
+        const QString qModel = QString::fromUtf8(cfg.model_size.c_str());
+        int idx = m_modelCombo->findText(qModel, Qt::MatchExactly);
+        if (idx >= 0) m_modelCombo->setCurrentIndex(idx);
+    }
+
+    // 语言（为空或 auto 则保持 "auto"）
+    QString qLang = QString("auto");
+    if (cfg.language.has_value() && !cfg.language->empty()) {
+        qLang = QString::fromUtf8(cfg.language->c_str());
+    }
+    int langIdx = m_languageCombo->findText(qLang, Qt::MatchExactly);
+    if (langIdx >= 0) m_languageCombo->setCurrentIndex(langIdx);
+    else m_languageCombo->setCurrentText(QString("auto"));
+
+    // GPU 选项（优先根据 device，其次根据 use_gpu 布尔值）
+    if (!cfg.device.empty()) {
+        if (cfg.device == "cuda" || cfg.device == "gpu") {
+            m_gpuCheck->setChecked(true);
+        } else if (cfg.device == "cpu") {
+            m_gpuCheck->setChecked(false);
+        }
+    } else {
+        m_gpuCheck->setChecked(cfg.use_gpu);
+    }
+
+    // 翻译器类型：offline/simple 显示为“ 不翻译 ”；google/openai 显示对应选项
+    std::string type = cfg.translator_type;
+    if (type == "offline" || type == "simple" || type.empty()) {
+        int tIdx = m_translatorCombo->findText(QString("不翻译"), Qt::MatchExactly);
+        if (tIdx >= 0) m_translatorCombo->setCurrentIndex(tIdx);
+    } else {
+        const QString qType = QString::fromUtf8(type.c_str());
+        int tIdx = m_translatorCombo->findText(qType, Qt::MatchExactly);
+        if (tIdx >= 0) m_translatorCombo->setCurrentIndex(tIdx);
+    }
+    // 根据当前翻译器类型刷新可见性
+    onTranslatorChanged(m_translatorCombo->currentIndex());
+
+    // 通用翻译选项
+    if (cfg.translator_options.timeout_seconds > 0) {
+        m_translatorTimeoutSpin->setValue(cfg.translator_options.timeout_seconds);
+    }
+    m_translatorRetrySpin->setValue(cfg.translator_options.retry_count);
+    m_translatorSslBypassCheck->setChecked(cfg.translator_options.ssl_bypass);
+
+    // OpenAI 专用选项
+    if (type == "openai") {
+        m_openaiApiKeyEdit->setText(QString::fromUtf8(cfg.translator_options.api_key.c_str()));
+        if (!cfg.translator_options.base_url.empty()) {
+            m_openaiBaseUrlEdit->setText(QString::fromUtf8(cfg.translator_options.base_url.c_str()));
+        }
+        if (!cfg.translator_options.model.empty()) {
+            m_openaiModelEdit->setText(QString::fromUtf8(cfg.translator_options.model.c_str()));
+        }
+        if (cfg.translator_options.max_tokens > 0) {
+            m_openaiMaxTokensSpin->setValue(cfg.translator_options.max_tokens);
+        }
+        m_openaiTemperatureSpin->setValue(cfg.translator_options.temperature);
+    }
+
+    // 日志提示
+    if (m_logEdit) {
+        m_logEdit->appendPlainText(ok ? QString::fromUtf8("已从 config/config.json 读取配置并应用到界面")
+                                      : QString::fromUtf8("未找到用户配置，已使用 default_config.json 初始化界面"));
+    }
 }
 
 void MainWindow::loadLanguages() {
@@ -481,6 +568,43 @@ void MainWindow::onTestTranslator() {
         m_translatorStatusLabel->setText(QString("状态: 成功 -> %1").arg(QString::fromUtf8(tr.segments[0].text.c_str())));
     } else {
         m_translatorStatusLabel->setText("状态: 失败");
+    }
+}
+
+void MainWindow::onSaveConfig() {
+    // 采集当前 UI 设置到 ProcessingConfig
+    v2s::ProcessingConfig cfg;
+    // 输出格式/模型/语言/GPU/线程/合并/双语仅与保存范围相关的项采集（模型/语言/GPU）
+    cfg.model_size = m_modelCombo->currentText().toUtf8().constData();
+    const QString lang = m_languageCombo->currentText();
+    if (lang != "auto" && !lang.isEmpty()) cfg.language = lang.toUtf8().constData(); else cfg.language = std::nullopt;
+    cfg.use_gpu = m_gpuCheck->isChecked();
+
+    // 翻译器配置
+    const QString translatorType = m_translatorCombo->currentText();
+    // 将“ 不翻译 ”映射为 simple，保持与核心一致
+    if (translatorType == "不翻译") cfg.translator_type = std::string("simple");
+    else cfg.translator_type = translatorType.toUtf8().constData();
+    cfg.translator_options.timeout_seconds = m_translatorTimeoutSpin->value();
+    cfg.translator_options.retry_count = m_translatorRetrySpin->value();
+    cfg.translator_options.ssl_bypass = m_translatorSslBypassCheck->isChecked();
+    if (translatorType == "openai") {
+        cfg.translator_options.api_key = m_openaiApiKeyEdit->text().toUtf8().constData();
+        cfg.translator_options.base_url = m_openaiBaseUrlEdit->text().toUtf8().constData();
+        cfg.translator_options.model = m_openaiModelEdit->text().toUtf8().constData();
+        cfg.translator_options.max_tokens = m_openaiMaxTokensSpin->value();
+        cfg.translator_options.temperature = m_openaiTemperatureSpin->value();
+    }
+
+    const bool ok = v2s::ConfigManager::save_user_config(std::filesystem::path("config/config.json"),
+                                                         std::filesystem::path("config/default_config.json"),
+                                                         cfg);
+    if (ok) {
+        m_logEdit->appendPlainText("配置已保存到 config/config.json");
+        QMessageBox::information(this, "已保存", "配置保存成功");
+    } else {
+        m_logEdit->appendPlainText("配置保存失败，详见日志");
+        QMessageBox::warning(this, "保存失败", "无法写入配置文件");
     }
 }
 

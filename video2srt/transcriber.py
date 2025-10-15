@@ -211,11 +211,30 @@ class Transcriber:
         print(f"开始转录: {audio_path}")
         
         # 执行转录
-        whisper_result = self.model.transcribe(
-            str(audio_path),
-            language=language,
-            verbose=True
-        )
+        # 在 CPU 上禁用 FP16，避免出现“FP16 在 CPU 上不支持”的警告；
+        # 使用设备的默认精度（CPU 使用 FP32，CUDA 可使用 FP16）。
+        fp16_enabled = (self.device == 'cuda')
+
+        # 根据用户设置调整 CPU 精度（fp32/fp64），不影响 GPU。
+        prev_dtype = torch.get_default_dtype()
+        if self.device == 'cpu':
+            cpu_precision = config_manager.get_whisper_cpu_precision()
+            if cpu_precision == 'fp64':
+                torch.set_default_dtype(torch.float64)
+            else:
+                # auto 和 fp32 都使用 float32
+                torch.set_default_dtype(torch.float32)
+
+        try:
+            whisper_result = self.model.transcribe(
+                str(audio_path),
+                language=language,
+                verbose=True,
+                fp16=fp16_enabled
+            )
+        finally:
+            # 恢复默认 dtype，避免影响其他模块
+            torch.set_default_dtype(prev_dtype)
         
         print("转录完成")
         

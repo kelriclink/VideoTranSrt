@@ -254,6 +254,17 @@ class ConfigManager:
     def set_whisper_device(self, device: str) -> bool:
         """设置 Whisper 设备"""
         return self.set('whisper.device', device)
+
+    def get_whisper_cpu_precision(self) -> str:
+        """获取 CPU 精度设置（auto/fp32/fp64）"""
+        return self.get('whisper.cpu_precision', 'auto')
+
+    def set_whisper_cpu_precision(self, precision: str) -> bool:
+        """设置 CPU 精度（auto/fp32/fp64）"""
+        valid = {'auto', 'fp32', 'fp64'}
+        if precision not in valid:
+            precision = 'auto'
+        return self.set('whisper.cpu_precision', precision)
     
     def is_intel_gpu_enabled(self) -> bool:
         """检查是否启用Intel显卡"""

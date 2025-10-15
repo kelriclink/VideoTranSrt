@@ -170,6 +170,17 @@ class ConfigDialog(QDialog):
         self.whisper_device_combo.addItems(['auto (自动)', 'cpu', 'cuda'])
         self.whisper_device_combo.setCurrentText('auto (自动)')
         whisper_layout.addWidget(self.whisper_device_combo, 2, 1)
+
+        # CPU 精度设置
+        whisper_layout.addWidget(QLabel("CPU精度:"), 3, 0)
+        self.whisper_cpu_precision_combo = QComboBox()
+        self.whisper_cpu_precision_combo.addItems([
+            'auto (最大可用)',
+            'fp32 (默认)',
+            'fp64 (实验)'
+        ])
+        self.whisper_cpu_precision_combo.setCurrentText('auto (最大可用)')
+        whisper_layout.addWidget(self.whisper_cpu_precision_combo, 3, 1)
         
         # 已移除 Intel GPU 相关选项
         
@@ -586,6 +597,15 @@ class ConfigDialog(QDialog):
             self.whisper_device_combo.setCurrentText('auto (自动)')
         else:
             self.whisper_device_combo.setCurrentText(device)
+
+        # 加载 CPU 精度
+        cpu_precision = config_manager.get_whisper_cpu_precision()
+        if cpu_precision == 'auto':
+            self.whisper_cpu_precision_combo.setCurrentText('auto (最大可用)')
+        elif cpu_precision == 'fp64':
+            self.whisper_cpu_precision_combo.setCurrentText('fp64 (实验)')
+        else:
+            self.whisper_cpu_precision_combo.setCurrentText('fp32 (默认)')
         
         # 已移除 Intel GPU 启用状态配置
         
@@ -683,6 +703,16 @@ class ConfigDialog(QDialog):
                 device = 'auto'
             # Intel 设备已移除
             config_manager.set('whisper.device', device)
+
+            # 保存 CPU 精度
+            cpu_precision_text = self.whisper_cpu_precision_combo.currentText()
+            if cpu_precision_text.startswith('auto'):
+                cpu_precision = 'auto'
+            elif cpu_precision_text.startswith('fp64'):
+                cpu_precision = 'fp64'
+            else:
+                cpu_precision = 'fp32'
+            config_manager.set_whisper_cpu_precision(cpu_precision)
             
             # 已移除 Intel GPU 启用状态保存
             

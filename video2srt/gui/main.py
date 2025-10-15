@@ -214,7 +214,10 @@ class Video2SRTGUI(QMainWindow):
         self.model_combo.setEditable(True)  # 允许用户编辑
         
         # 使用插件系统获取所有可用的模型
-        from ..plugin_download_manager import get_download_manager
+        # 注意：打包运行时如果作为脚本启动，可能没有父包上下文，
+        # 相对导入会导致 "attempted relative import with no known parent package"。
+        # 因此这里改为绝对导入以兼容打包后的执行环境。
+        from video2srt.plugin_download_manager import get_download_manager
         download_manager = get_download_manager()
         all_models = download_manager.get_all_models()
         

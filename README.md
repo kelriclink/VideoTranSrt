@@ -97,3 +97,34 @@ python -m video2srt.gui
 - [模型管理](doc/md_backup/MODEL_MANAGEMENT.md)
 - [上下文翻译指南](doc/md_backup/CONTEXT_TRANSLATION_GUIDE.md)
 - [开发文档](doc/md_backup/DEVELOPMENT.md)
+
+## 🧩 原生（C++/Qt）构建
+
+项目包含与 Python 并行的原生子项目（CLI 与 Qt GUI）。在 Windows 上现已支持“纯 CMake 一键构建并自动部署”。
+
+快速开始（Windows，纯 CMake 自动部署）：
+
+```powershell
+# 在仓库根目录执行
+cmake -S .\native -B .\native\build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DV2S_USE_LOCAL_DEPS=ON \
+  -DCMAKE_PREFIX_PATH="C:\Qt\6.10.0\mingw_64" \
+  -DV2S_WINDEPLOYQT_EXE="C:\Qt\6.10.0\mingw_64\bin\windeployqt.exe"
+
+cmake --build .\native\build --config Release
+```
+
+构建完成后：
+- GUI：`native/build/apps/qtgui/v2s_qt.exe`（目录下已自动部署 Qt 运行库与所需 DLL）
+- CLI：`native/build/apps/cli/v2s_cli.exe`（目录下已自动拷贝 FFmpeg 与 MinGW 运行时 DLL）
+- 两者均会自动拷贝 `config/default_config.json` 至可执行目录的 `config/` 子目录（可关闭或自定义路径）
+
+可选配置：
+- `-DV2S_DEPLOY_ON_BUILD=OFF` 关闭自动部署（默认 ON）
+- `-DV2S_WINDEPLOYQT_EXE=...` 指定 windeployqt.exe 路径（未指定时尝试自动推断）
+- `-DV2S_COPY_DEFAULT_CONFIG_ON_BUILD=OFF` 关闭默认配置文件拷贝（默认 ON）
+- `-DV2S_DEFAULT_CONFIG_PATH="D:/path/to/default_config.json"` 指定配置文件来源路径（默认为仓库根目录下的 `config/default_config.json`）
+
+脚本方式（可选）：仍可使用 `native/configure.ps1` 自动检测 Qt/MinGW 与本地依赖完成配置与构建，详见 `native/BUILD.md`。
+
+更多依赖管理与高级用法，请参阅 `native/BUILD.md` 与 `native/README.md`。
