@@ -155,3 +155,25 @@ __pycache__/
 *.pyc
 .venv/
 .env
+
+# Native (C++) project ignores
+# Exclude local build directories and Qt cache
+native/build-*/
+native/build-mingw/
+native/.qt/
+
+# Exclude bundled toolchains and archives
+native/winlibs-gcc/
+native/winlibs-gcc.zip
+native/**/*.zip
+
+# Exclude vendored heavy third-party binaries (keep source managed separately)
+native/third_party/ffmpeg/
+native/third_party/ffmpeg-static/
+
+# Exclude CMake build artifacts inside native subtrees
+native/**/CMakeFiles/
+native/**/CMakeCache.txt
+native/**/cmake_install.cmake
+native/**/CTestTestfile.cmake
+native/**/Makefile

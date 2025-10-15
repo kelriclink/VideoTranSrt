@@ -1,0 +1,36 @@
+{
+  "name": "video2srt-native",
+  "version": "0.1.0",
+  "description": "Native C++ implementation for video2srt project",
+  "dependencies": [
+    "nlohmann-json",
+    "spdlog",
+    "cxxopts"
+  ],
+  "features": {
+    "audio": {
+      "description": "Audio extraction support using FFmpeg",
+      "dependencies": [
+        "ffmpeg"
+      ]
+    },
+    "whisper": {
+      "description": "Whisper.cpp integration for speech recognition",
+      "dependencies": [
+        "whisper-cpp"
+      ]
+    },
+    "onnx": {
+      "description": "ONNX Runtime backend for ML inference",
+      "dependencies": [
+        "onnxruntime"
+      ]
+    },
+    "openvino": {
+      "description": "Intel OpenVINO backend for optimized inference",
+      "dependencies": [
+        "openvino"
+      ]
+    }
+  }
+}
