@@ -1,0 +1,75 @@
+name: Build Native GUI (Windows MinGW)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'native/**'
+      - '.github/workflows/native-gui-mingw.yml'
+      - '.gitmodules'
+
+jobs:
+  build-windows-gui-mingw:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Setup MSYS2 (MINGW64)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pkg-config
+
+      - name: Install Qt (MinGW)
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '6.10.0'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_mingw'
+          cache: true
+          setenv: true
+
+      - name: Build whisper.cpp (MinGW static libs)
+        shell: bash -lc
+        run: |
+          cmake -S native/third_party/whisper.cpp -B native/third_party/whisper.cpp/build-mingw -G "Ninja" -DGGML_OPENMP=OFF
+          cmake --build native/third_party/whisper.cpp/build-mingw -- -j 8
+          # 规范化库输出布局，便于顶层 CMake 查找
+          mkdir -p native/third_party/whisper.cpp/build-mingw/src
+          mkdir -p native/third_party/whisper.cpp/build-mingw/ggml/src
+          cp $(find native/third_party/whisper.cpp/build-mingw -name "libwhisper.a" -o -name "whisper.lib" | head -n 1) native/third_party/whisper.cpp/build-mingw/src/ || true
+          cp $(find native/third_party/whisper.cpp/build-mingw -name "libggml.a" -o -name "ggml.lib" | head -n 1) native/third_party/whisper.cpp/build-mingw/ggml/src/ || true
+          cp $(find native/third_party/whisper.cpp/build-mingw -name "libggml-base.a" -o -name "ggml-base.lib" | head -n 1) native/third_party/whisper.cpp/build-mingw/ggml/src/ || true
+          cp $(find native/third_party/whisper.cpp/build-mingw -name "libggml-cpu.a" -o -name "ggml-cpu.lib" | head -n 1) native/third_party/whisper.cpp/build-mingw/ggml/src/ || true
+
+      - name: Configure (CMake MinGW)
+        shell: bash -lc
+        run: |
+          cmake -S native -B native/build-mingw -G "Ninja" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DV2S_USE_LOCAL_DEPS=ON \
+            -DV2S_DEPLOY_ON_BUILD=ON \
+            -DV2S_ENABLE_WHISPER=ON \
+            -DCMAKE_PREFIX_PATH="${Qt6_DIR}"
+
+      - name: Build GUI target (MinGW)
+        shell: bash -lc
+        run: |
+          cmake --build native/build-mingw --config Release --target v2s_qt -- -j 8
+
+      - name: Upload artifact (GUI MinGW)
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2s_qt-windows-mingw
+          path: native/build-mingw/apps/qtgui/
+          if-no-files-found: error

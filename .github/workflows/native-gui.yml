@@ -30,13 +30,26 @@ jobs:
           arch: 'win64_msvc2022_64'
           cache: true
 
+      - name: Build whisper.cpp (MSVC static libs)
+        shell: pwsh
+        run: |
+          cmake -S native/third_party/whisper.cpp -B native/third_party/whisper.cpp/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_OPENMP=OFF
+          cmake --build native/third_party/whisper.cpp/build --config Release -- -j 8
+          # 规范化库输出布局，便于顶层 CMake 查找
+          New-Item -ItemType Directory -Force -Path native/third_party/whisper.cpp/build/src | Out-Null
+          New-Item -ItemType Directory -Force -Path native/third_party/whisper.cpp/build/ggml/src | Out-Null
+          $whisperLib = Get-ChildItem native/third_party/whisper.cpp/build -Recurse -Include whisper.lib,libwhisper.a | Select-Object -First 1
+          if ($whisperLib) { Copy-Item $whisperLib.FullName native/third_party/whisper.cpp/build/src -Force }
+          $ggmlLibs = Get-ChildItem native/third_party/whisper.cpp/build -Recurse -Include ggml.lib,ggml.a,ggml-base.lib,ggml-base.a,ggml-cpu.lib,ggml-cpu.a
+          foreach ($lib in $ggmlLibs) { Copy-Item $lib.FullName native/third_party/whisper.cpp/build/ggml/src -Force }
+
       - name: Configure (CMake)
         shell: pwsh
         run: |
           cmake -S native -B native/build -G Ninja -DCMAKE_BUILD_TYPE=Release `
             -DV2S_USE_LOCAL_DEPS=ON `
             -DV2S_DEPLOY_ON_BUILD=ON `
-            -DV2S_ENABLE_WHISPER=OFF `
+            -DV2S_ENABLE_WHISPER=ON `
             -DCMAKE_PREFIX_PATH="$env:Qt6_DIR"
 
       - name: Build GUI target
