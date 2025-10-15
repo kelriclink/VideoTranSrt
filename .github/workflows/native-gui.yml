@@ -1,0 +1,53 @@
+name: Build Native GUI (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'native/**'
+      - '.github/workflows/native-gui.yml'
+      - '.gitmodules'
+
+jobs:
+  build-windows-gui:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Setup Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v3
+
+      - name: Install Qt (MSVC)
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '6.10.0'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2019_64'
+          modules: 'qtbase'
+          cache: true
+
+      - name: Configure (CMake)
+        shell: pwsh
+        run: |
+          cmake -S native -B native/build -G Ninja -DCMAKE_BUILD_TYPE=Release `
+            -DV2S_USE_LOCAL_DEPS=ON `
+            -DV2S_DEPLOY_ON_BUILD=ON `
+            -DV2S_ENABLE_WHISPER=OFF `
+            -DCMAKE_PREFIX_PATH="$env:Qt6_DIR"
+
+      - name: Build GUI target
+        shell: pwsh
+        run: |
+          cmake --build native/build --config Release --target v2s_qt -- -j 8
+
+      - name: Upload artifact (GUI)
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2s_qt-windows
+          path: native/build/apps/qtgui/
+          if-no-files-found: error
